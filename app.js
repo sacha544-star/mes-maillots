@@ -1017,5 +1017,53 @@ function brancher(){
    case 'estimer':{synchroForm();if(!etat.form.equipe){toast('Indique l\'équipe d\'abord.');return}const s=await estimation(etat.form);if(s){etat.form.valeur=s.mediane;rendre();toast(`Médiane ${euros(s.mediane)} sur ${s.nb} annonces (${s.ecartes} écartées).`)}break}
    case 'carrousel':{const n=((collection.find(x=>x.id===etat.ficheId)||{}).photos||[]).length;if(n){etat.carrousel=(etat.carrousel+(+el.dataset.d)+n)%n;rendre()}break}
    case 'wish-statut':etat.statutWish=el.dataset.s;rendre();break;
-   case
+      case 'wish-modifier':{const w=wishlist.find(x=>x.id===id);if(w)ouvrirFormWish(w);break}
+   case 'wish-trouve':{const w=wishlist.find(x=>x.id===id);if(w){w.statut='trouve';w.dateTrouve=Date.now();sauver();etat.statutWish='trouve';rendre();toast('Marqué comme trouvé.')}break}
+   case 'wish-vers-collection':{const w=wishlist.find(x=>x.id===id);if(w)ouvrirFormMaillot(depuisWish(w));break}
+   case 'wish-reprendre':{const w=wishlist.find(x=>x.id===id);if(w){w.statut='suivi';sauver();etat.statutWish='suivi';rendre();toast('Suivi repris.')}break}
+   case 'wish-alerte':{const w=wishlist.find(x=>x.id===id);if(w){w.alerte=!w.alerte;sauver();rendre()}break}
+   case 'wish-supprimer':{const w=wishlist.find(x=>x.id===id);if(w&&confirm(`Supprimer « ${w.equipe} » de la wishlist ?`)){wishlist=wishlist.filter(x=>x.id!==id);sauver();rendre();toast('Envie supprimée.')}break}
+   case 'verifier':await verifierPrix();break;
+   case 'verifier-un':await verifierPrix([id]);break;
+   case 'idees':etat.seed++;rendre();break;
+   case 'reset-filtres':etat.filtres={equipe:'',saison:'',couleur:'',categorie:''};etat.recherche='';rendre();break;
+   case 'sugg-wish':{const s=etat.suggCache[+el.dataset.i];if(s){const e=trouverEquipe(s.equipe);wishlist.unshift({id:uid(),date:Date.now(),equipe:s.equipe,type:e?e.type:'club',saison:s.saison||'',marque:s.marque||'',version:'Replica',couleur:'',taille:'',budget:null,alerte:true,statut:'suivi',notes:''});sauver();rendre();toast('Ajouté à la wishlist.')}break}
+   case 'sugg-col':{const s=etat.suggCache[+el.dataset.i];if(s){const e=trouverEquipe(s.equipe);ouvrirFormMaillot({equipe:s.equipe,type:e?e.type:'club',saison:s.saison||'',marque:s.marque||''})}break}
+   case 'notifs':etat.panneau=!etat.panneau;rendre();break;
+   case 'notif':{const lus=lire(K.notifs,[]);if(!lus.includes(id)){lus.push(id);ecrire(K.notifs,lus)}etat.panneau=false;if(el.dataset.p)etat.page=el.dataset.p;rendre();break}
+   case 'notif-lu-tout':ecrire(K.notifs,notifications().map(n=>n.id));rendre();break;
+   case 'fermer':fermerModal();break;
+   case 'photo-suppr':{synchroForm();const p=etat.form.photos[+el.dataset.i];if(p){if(p.id)etat.form.photosSupprimees.push(p.id);etat.form.photos.splice(+el.dataset.i,1)}rendre();break}
+   case 'lens':await identifierLens();break;
+   case 'appliquer':appliquerLens(+el.dataset.i);break;
+   case 'enregistrer':await enregistrerMaillot();break;
+   case 'wish-enregistrer':enregistrerWish();break;
+   case 'sauver-params':sauverParams(true);break;
+   case 'tester':{sauverParams(false);const z=$('#res-test');if(z)z.innerHTML='<div class="aide">Test en cours…</div>';
+    try{await relais('ping');if(z)z.innerHTML='<div class="aide"><b>Connexion réussie.</b></div>'}
+    catch(e){if(z)z.innerHTML=`<div class="aide">Échec : ${esc(e.message)}</div>`}break}
+   case 'exporter':await exporter();break;
+   case 'maj':{try{const regs=await navigator.serviceWorker.getRegistrations();for(const r of regs)await r.unregister();for(const k of await caches.keys())await caches.delete(k)}catch(e){}location.reload();break}
+  }
+ });
+ root.addEventListener('input',ev=>{if(ev.target.id==='recherche'){etat.recherche=ev.target.value;const z=$('#zone-liste');if(z){z.innerHTML=listeCollection();chargerPhotos()}}});
+ root.addEventListener('change',async ev=>{const t=ev.target;
+  if(t.dataset&&t.dataset.f){etat.filtres[t.dataset.f]=t.value;rendre();return}
+  if(t.id==='fichier-photo'){await ajouterPhotos([...t.files]);return}
+  if(t.id==='fichier-import'){try{await importer(t.files[0])}catch(e){toast('Import impossible : '+e.message)}t.value='';return}
+ });
+ document.addEventListener('keydown',ev=>{if(ev.key==='Escape'&&etat.modal)fermerModal()});
+}
+
+/* ===================== DÉMARRAGE ===================== */
+async function demarrer(){
+ root=document.getElementById('app')||document.getElementById('root')||(()=>{const d=document.createElement('div');d.id='app';document.body.appendChild(d);return d})();
+ brancher();
+ try{await migrer()}catch(e){console.error('Migration :',e)}
+ rendre();
+ ['chargement','loader','loading'].forEach(i=>{const el=document.getElementById(i);if(el&&el!==root&&!root.contains(el))el.remove()});
+ veilleAuto().catch(()=>{});
+ if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',demarrer);else demarrer();
 })();
