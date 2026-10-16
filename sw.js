@@ -1,6 +1,5 @@
 const CACHE = 'mes-maillots-v4';
 const FICHIERS = ['./', './index.html', './app.js', './manifest.json'];
-
 self.addEventListener('install', (e) => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FICHIERS)));
