@@ -1,4 +1,4 @@
-const CACHE = 'mes-maillots-v7';
+const CACHE = 'mes-maillots-v6';
 const FICHIERS = ['./', './index.html', './app.js', './manifest.json'];
 self.addEventListener('install', (e) => {
   self.skipWaiting();
