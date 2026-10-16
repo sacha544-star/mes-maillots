@@ -1,5 +1,7 @@
 const CACHE = 'mes-maillots-v7';
 const FICHIERS = ['./', './index.html', './app.js', './manifest.json'];
+const CACHE = 'mes-maillots-v8';
+const FICHIERS = ['./', './index.html', './app.js', './style.css', './manifest.json'];
 self.addEventListener('install', (e) => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FICHIERS)));
