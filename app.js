@@ -1018,3 +1018,4 @@ function brancher(){
    case 'carrousel':{const n=((collection.find(x=>x.id===etat.ficheId)||{}).photos||[]).length;if(n){etat.carrousel=(etat.carrousel+(+el.dataset.d)+n)%n;rendre()}break}
    case 'wish-statut':etat.statutWish=el.dataset.s;rendre();break;
    case
+})();
