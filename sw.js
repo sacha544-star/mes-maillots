@@ -1,4 +1,4 @@
-const CACHE = 'mes-maillots-v3';
+const CACHE = 'mes-maillots-v4';
 const FICHIERS = ['./', './index.html', './app.js', './manifest.json'];
 
 self.addEventListener('install', (e) => {
