@@ -1,6 +1,6 @@
 'use strict';
 (function(){
-const VERSION='3.2';
+const VERSION='3.3';
 const QUOTA_MAX=250;
 
 /* ===================== UTILITAIRES ===================== */
@@ -14,7 +14,7 @@ const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u03
 const hash=s=>{let h=0;for(const c of String(s))h=(h*31+c.charCodeAt(0))|0;return Math.abs(h)};
 const dateFr=ts=>ts?new Date(ts).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
 const saisonCourte=s=>{const m=String(s||'').match(/(\d{2})(\d{2})/);return m?m[2]:''};
-const K={col:'mm_collection',wish:'mm_wishlist',params:'mm_params',quota:'mm_quota',notifs:'mm_notifs_lus',veille:'mm_veille',wiki:'mm_wiki'};
+const K={col:'mm_collection',wish:'mm_wishlist',params:'mm_params',quota:'mm_quota',notifs:'mm_notifs_lus',veille:'mm_veille',wiki:'mm_wiki',img:'mm_img'};
 
 /* ===================== LISTES ===================== */
 const VERSIONS=['Replica','Authentic','Porté en match','Autre'];
@@ -666,7 +666,7 @@ Auckland City|Nouvelle-Zélande|#1b3a8a|#ffffff|uni|Auckland
 Wellington Phoenix|Nouvelle-Zélande|#f9d548|#000000|uni|Phoenix,Wellington
 `;
 
-/* Maillots cultes : Equipe|saison|marque|joueur|c1|c2|motif|citation|pages Wikipédia (photo) séparées par ; */
+/* Maillots cultes : Equipe|saison|marque|joueur|c1|c2|motif|citation|pages Wikipédia (photo de secours) séparées par ; */
 const CLASSIQUES_BRUT=`
 France|1998|Adidas||#1b3a8a|#ffffff|bande|La bande rouge et blanche du 12 juillet 1998.|Finale de la Coupe du monde de football 1998;Équipe de France de football en 1998;Zinédine Zidane
 France|2018|Nike||#1b3a8a|#ffffff|uni|La deuxième étoile, Moscou, 15 juillet 2018.|Finale de la Coupe du monde de football 2018;Kylian Mbappé
@@ -735,22 +735,43 @@ function svgMaillot(c1,c2,motif,o={}){const id='m'+(++svgN);c1=c1||'#1d3b2f';c2=
  return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><defs><clipPath id="${id}"><path d="${corps}"/></clipPath></defs><g clip-path="url(#${id})"><rect width="100" height="100" fill="${c1}"/>${deco}</g><path d="${corps}" fill="none" stroke="rgba(0,0,0,.2)" stroke-width="1.5"/><path d="M41 9 Q50 17 59 9" fill="none" stroke="${c2}" stroke-width="3"/>${texte}</svg>`}
 function couleurDepuisNom(n){const pal=['#1d3b2f','#1b3a8a','#c8102e','#7a1f1f','#5a2d91','#f26a1b','#6cabdd','#1b8a3c'];return pal[hash(norm(n))%pal.length]}
 
-/* Photos Wikipédia (libres, sans quota) : cache local, 1 seule requête par titre */
+/* Photos Wikipédia (secours, sans quota) : cache local, 1 seule requête par titre */
 const WIKI=lire(K.wiki,{});const wikiEnCours=new Map();
 function imageWiki(titre){if(titre in WIKI)return Promise.resolve(WIKI[titre]);if(wikiEnCours.has(titre))return wikiEnCours.get(titre);
  const p=(async()=>{try{const r=await fetch('https://fr.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(titre.replace(/ /g,'_')));if(r.status===404){WIKI[titre]=null;ecrire(K.wiki,WIKI);return null}if(!r.ok)return null;const j=await r.json();let src=(j.thumbnail||{}).source||null;if(src)src=src.replace(/\/(\d+)px-/,'/640px-');WIKI[titre]=src;ecrire(K.wiki,WIKI);return src}catch(e){return null}finally{wikiEnCours.delete(titre)}})();wikiEnCours.set(titre,p);return p}
 async function premiereImage(titres){for(const t of titres){const s=await imageWiki(t);if(s)return s}return null}
-function chargerWiki(){$$('.visu[data-wiki]').forEach(async el=>{const titres=el.dataset.wiki.split(';;').filter(Boolean);el.removeAttribute('data-wiki');const src=await premiereImage(titres);if(!src||!el.isConnected)return;const img=new Image();img.alt='';img.loading='lazy';img.onload=()=>{const r=img.naturalWidth/img.naturalHeight;img.className='visu-img'+(r>0.75&&r<1.35?' logo':'');el.innerHTML='';el.appendChild(img)};img.src=src})}
-/* Image liée à l'équipe : lien perso > photo Wikipédia (joueur/finale/écusson) > drapeau > maillot dessiné aux couleurs */
+
+/* Photos Google Images via le Worker « maillots-images » : 1 recherche SerpApi par maillot, mémorisée pour toujours (relais + téléphone) */
+const IMG=lire(K.img,{});const imgEnCours=new Map();let imgSlots=2;const imgAttente=[];
+const prendreSlot=()=>new Promise(res=>{if(imgSlots>0){imgSlots--;res()}else imgAttente.push(res)});
+const rendreSlot=()=>{const n=imgAttente.shift();if(n)n();else imgSlots++};
+function urlImages(){if(params.relaisImages)return params.relaisImages.trim().replace(/\/$/,'');const r=(params.relais||'').trim().replace(/\/$/,'');if(!r)return '';return r.includes('maillots-relais')?r.replace('maillots-relais','maillots-images'):''}
+const proxyImg=u=>`${urlImages()}/img?u=${encodeURIComponent(u)}&code=${encodeURIComponent(params.code||'')}`;
+const requeteImage=x=>['maillot',x.equipe,x.saison,x.marque,x.joueur].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
+function imagesGoogle(q){const k=norm(q);if(IMG[k])return Promise.resolve(IMG[k]);if(imgEnCours.has(k))return imgEnCours.get(k);
+ const p=(async()=>{await prendreSlot();try{if(IMG[k])return IMG[k];const base=urlImages();if(!base||!params.code)return null;if(quota().utilise>=QUOTA_MAX*0.9)return null;
+  const r=await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:params.code,action:'images',q})});const j=await r.json().catch(()=>({}));if(!r.ok||j.ok===false)return null;
+  if(j.serpapi_utilise&&!j.cache)compterQuota(1);const images=(j.images||[]).filter(i=>i.original||i.miniature);IMG[k]={q,images,i:0,date:Date.now()};ecrire(K.img,IMG);return IMG[k]}
+  catch(e){return null}finally{rendreSlot();imgEnCours.delete(k)}})();imgEnCours.set(k,p);return p}
+function afficherImage(el,src,repli,echec,logo){const img=new Image();img.alt='';img.onload=()=>{if(!el.isConnected)return;const r=img.naturalWidth/img.naturalHeight;img.className='visu-img'+(logo&&r>0.75&&r<1.35?' logo':'');el.innerHTML='';el.appendChild(img)};img.onerror=()=>{if(repli)afficherImage(el,repli,null,echec,logo);else if(echec)echec()};img.src=src}
+async function chargerWikiEl(el,titresBrut){const titres=String(titresBrut||'').split(';;').filter(Boolean);if(!titres.length)return;const src=await premiereImage(titres);if(src&&el.isConnected)afficherImage(el,src,null,null,true)}
+function chargerVisuels(){
+ $$('.visu[data-gq]').forEach(async el=>{const q=el.dataset.gq;const wiki=el.dataset.wiki||'';el.removeAttribute('data-gq');el.removeAttribute('data-wiki');const c=await imagesGoogle(q);if(!el.isConnected)return;
+  const im=c&&c.images.length?c.images[(c.i||0)%c.images.length]:null;if(!im){chargerWikiEl(el,wiki);return}
+  if(im.original)afficherImage(el,proxyImg(im.original),im.miniature||null,()=>chargerWikiEl(el,wiki));else afficherImage(el,im.miniature,null,()=>chargerWikiEl(el,wiki))});
+ $$('.visu[data-wiki]').forEach(el=>{const w=el.dataset.wiki;el.removeAttribute('data-wiki');chargerWikiEl(el,w)})}
+/* Image liée au maillot : lien perso > photo Google Images > photo Wikipédia > drapeau > maillot dessiné aux couleurs */
 function visuelEquipe(nom,o={}){const e=trouverEquipe(nom);let titres=o.wiki||[];
  if(!titres.length&&e&&e.type==='club'&&o.web!==false)titres=[e.nom,...e.alias.slice(0,2)];
  let fond;if(e&&e.type==='selection'&&e.iso&&!o.force)fond=`<img class="visu-drapeau" src="https://flagcdn.com/w320/${e.iso}.png" alt="${esc(e.nom)}" loading="lazy">`;
  else{const c1=(o.force&&o.c1)||(e&&e.c1)||o.c1||couleurDepuisNom(nom||'x');const c2=(o.force&&o.c2)||(e&&e.c2)||o.c2||(String(c1).toLowerCase()==='#ffffff'?'#1d3b2f':'#ffffff');const motif=(o.force&&o.motif)||(e&&e.motif)||o.motif||'uni';fond=`<div class="visu-maillot">${svgMaillot(c1,c2,motif,{texte:o.texte||''})}</div>`}
  if(o.url)return `<div class="visu"><img class="visu-img" src="${esc(o.url)}" alt="" loading="lazy" onerror="this.remove()">${fond}</div>`;
- return `<div class="visu"${titres.length?` data-wiki="${esc(titres.join(';;'))}"`:''}>${fond}</div>`}
+ const gq=(o.gq&&params.photosWeb!==false&&urlImages())?o.gq:'';
+ return `<div class="visu"${gq?` data-gq="${esc(gq)}"`:''}${titres.length?` data-wiki="${esc(titres.join(';;'))}"`:''}>${fond}</div>`}
+const btnPhoto=(q,style='')=>q&&params.photosWeb!==false&&urlImages()?`<button class="btn btn-ic" data-a="img-suivante" data-q="${esc(q)}" title="Changer la photo (sans recherche supplémentaire)"${style?` style="${style}"`:''}>${I('camera')}</button>`:'';
 
 /* ===================== ÉTAT & STOCKAGE ===================== */
-let collection=lire(K.col,[]),wishlist=lire(K.wish,[]),params=Object.assign({relais:'',code:'',prenom:'',dernierExport:0,ebay:false,veille:true},lire(K.params,{}));
+let collection=lire(K.col,[]),wishlist=lire(K.wish,[]),params=Object.assign({relais:'',relaisImages:'',code:'',prenom:'',dernierExport:0,ebay:false,veille:true,photosWeb:true},lire(K.params,{}));
 const etat={page:'accueil',recherche:'',filtres:{equipe:'',saison:'',couleur:'',categorie:''},statutWish:'suivi',seed:1,modal:null,form:null,panneau:false,carrousel:0,ficheId:null,lens:null,lensHtml:'',suggCache:[]};
 let root;
 function sauver(){ecrire(K.col,collection);ecrire(K.wish,wishlist);ecrire(K.params,params)}
@@ -873,7 +894,7 @@ function entete(){const lus=lire(K.notifs,[]);const nonLues=notifications().filt
 function barre(){const b=p=>`<button class="${etat.page===p.id?'on':''}" data-a="page" data-p="${p.id}">${I(p.ic)}${p.nom}</button>`;return `<nav class="barre">${b(PAGES[0])}${b(PAGES[1])}<button class="plus" data-a="ajouter">${I('plus')}</button>${b(PAGES[2])}${b(PAGES[3])}</nav>`}
 function datalists(){return `<datalist id="liste-equipes">${EQUIPES.map(e=>`<option value="${esc(e.nom)}">`).join('')}</datalist><datalist id="liste-marques">${MARQUES.map(m=>`<option value="${m}">`).join('')}</datalist>`}
 
-function carteMaillot(m){const img=m.photos&&m.photos[0]?`<img data-ph="${esc(m.photos[0])}" alt="${esc(m.equipe)}">`:visuelEquipe(m.equipe,{texte:m.numero||saisonCourte(m.saison),c1:couleurHex(m.couleur)});
+function carteMaillot(m){const img=m.photos&&m.photos[0]?`<img data-ph="${esc(m.photos[0])}" alt="${esc(m.equipe)}">`:visuelEquipe(m.equipe,{texte:m.numero||saisonCourte(m.saison),c1:couleurHex(m.couleur),gq:requeteImage(m)});
  return `<article class="carte" data-a="fiche" data-id="${m.id}"><div class="img">${img}<span class="badge">${esc(m.version||'Replica')}</span><button class="heart ${m.favori?'on':''}" data-a="favori" data-id="${m.id}" title="Coup de cœur">${I('heart')}</button></div>
  <div class="corps"><h3>${esc(m.equipe||'Maillot')}</h3><div class="meta">${[m.saison,m.marque,m.categorie,m.couleur].filter(Boolean).map(esc).join(' · ')||'—'}</div>
  <div class="bas"><span class="chip">${esc(m.etat||'État non renseigné')}</span><b>${euros(m.valeur!=null&&m.valeur!==''?m.valeur:m.prixAchat)}</b></div></div></article>`}
@@ -898,13 +919,13 @@ function carteWish(w){const meta=[w.version||'Replica',w.marque,w.couleur,w.tail
  const actions=w.statut==='suivi'?`<button class="btn" data-a="wish-modifier" data-id="${w.id}">${I('edit')} Modifier</button><button class="btn btn-vert" data-a="wish-trouve" data-id="${w.id}">${I('bag')} Je l'ai trouvé</button><button class="btn btn-ic" data-a="verifier-un" data-id="${w.id}" title="Vérifier ce maillot maintenant">${I('refresh')}</button>`
   :w.statut==='trouve'?`<button class="btn btn-vert" data-a="wish-vers-collection" data-id="${w.id}">${I('plus')} Ajouter à la collection</button><button class="btn" data-a="wish-reprendre" data-id="${w.id}">${I('refresh')} Reprendre le suivi</button>`
   :`<button class="btn" data-a="wish-reprendre" data-id="${w.id}">${I('refresh')} Reprendre le suivi</button><button class="btn" data-a="wish-modifier" data-id="${w.id}">${I('edit')} Modifier</button>`;
- const classique=CLASSIQUES.find(c=>norm(c.equipe)===norm(w.equipe)&&c.saison&&norm(w.saison).includes(norm(c.saison).slice(0,4)));
- return `<article class="wcarte"><div class="wtete"><div class="wvisu">${visuelEquipe(w.equipe,{url:w.imageUrl,wiki:classique?classique.wiki:undefined,texte:saisonCourte(w.saison),c1:couleurHex(w.couleur)})}</div><div><h3>${esc(w.equipe)}</h3><div class="meta">${esc(w.saison||'Saison non précisée')}</div><div class="meta">${meta}</div></div>
+ const classique=CLASSIQUES.find(c=>norm(c.equipe)===norm(w.equipe)&&c.saison&&norm(w.saison).includes(norm(c.saison).slice(0,4)));const gq=w.imageUrl?'':requeteImage(w);
+ return `<article class="wcarte"><div class="wtete"><div class="wvisu grand">${visuelEquipe(w.equipe,{url:w.imageUrl,wiki:classique?classique.wiki:undefined,texte:saisonCourte(w.saison),c1:couleurHex(w.couleur),gq})}</div><div><h3>${esc(w.equipe)}</h3><div class="meta">${esc(w.saison||'Saison non précisée')}</div><div class="meta">${meta}</div></div>
  <button class="wbell ${w.alerte?'':'off'}" data-a="wish-alerte" data-id="${w.id}" title="${w.alerte?'Désactiver l\'alerte':'Activer l\'alerte'}">${I('bell')}</button></div>
  ${w.statut!=='suivi'?`<div style="margin-top:10px"><span class="chip">${w.statut==='trouve'?'Trouvé':'Abandonné'}</span></div>`:''}
  <div class="wsep"></div><div class="wprix"><div><div class="lab">Budget</div><div class="val">${euros(w.budget)}</div></div><div><div class="lab">Prix de référence</div><div class="val">${w.prixRef==null?'<span class="arelever">à relever</span>':euros(w.prixRef)}</div></div><div><div class="lab">Dernier prix</div><div class="val">${euros(w.dernierPrix)}</div></div></div>
  ${alerte?`<div class="wnote">${alerte}</div>`:''}<div class="wnote">${releve}</div>${meilleure}${w.notes?`<div class="wnote"><b>Notes.</b> ${esc(w.notes)}</div>`:''}
- <div class="wactions">${actions}<button class="btn btn-ic btn-rouge" data-a="wish-supprimer" data-id="${w.id}" title="Supprimer" style="margin-left:auto">${I('trash')}</button></div></article>`}
+ <div class="wactions">${actions}${btnPhoto(gq)}<button class="btn btn-ic btn-rouge" data-a="wish-supprimer" data-id="${w.id}" title="Supprimer" style="margin-left:auto">${I('trash')}</button></div></article>`}
 function pageWishlist(){const statuts=[['suivi','Suivis'],['trouve','Trouvés'],['abandonne','Abandonnés'],['tous','Tous']];const l=wishlist.filter(w=>etat.statutWish==='tous'||w.statut===etat.statutWish).sort((a,b)=>(b.date||0)-(a.date||0));
  const mot={suivi:'surveillés',trouve:'trouvés',abandonne:'abandonnés',tous:'au total'}[etat.statutWish];
  return `<div class="titre-page"><div><div class="eyebrow">Veille</div><h1>Ma wishlist</h1><p>Les maillots que vous aimeriez avoir. Leurs prix sont relevés régulièrement sur les annonces de revente entre particuliers : Vinted, Leboncoin et les autres plateformes fiables.</p></div>
@@ -914,9 +935,9 @@ function pageWishlist(){const statuts=[['suivi','Suivis'],['trouve','Trouvés'],
  <div class="compte">${l.length} maillot${l.length>1?'s':''} · ${mot}</div>
  ${l.length?`<div class="wgrille">${l.map(carteWish).join('')}</div>`:`<div class="vide"><h3>Rien ici pour le moment</h3><p>Ajoute une envie : l'appli relèvera ses prix sur les annonces entre particuliers.</p><button class="btn btn-vert" data-a="ajouter-wish">${I('plus')} Ajouter une envie</button></div>`}`}
 
-function carteSugg(s,i){const e=trouverEquipe(s.equipe);return `<article class="carte sugg-carte"><div class="img">${visuelEquipe(s.equipe,{force:s.force,c1:s.c1,c2:s.c2,motif:s.motif,wiki:s.wiki,texte:saisonCourte(s.saison)})}${s.saison?`<span class="badge">${esc(s.saison)}</span>`:''}</div>
+function carteSugg(s,i){const e=trouverEquipe(s.equipe);const gq=requeteImage(s);return `<article class="carte sugg-carte"><div class="img">${visuelEquipe(s.equipe,{force:s.force,c1:s.c1,c2:s.c2,motif:s.motif,wiki:s.wiki,texte:saisonCourte(s.saison),gq})}${s.saison?`<span class="badge">${esc(s.saison)}</span>`:''}</div>
  <div class="corps"><h3>${esc(s.equipe)}${s.joueur?` <small>· ${esc(s.joueur)}</small>`:''}</h3><div class="meta">${[s.saison,s.marque,e?(e.type==='club'?e.pays:'Sélection nationale'):''].filter(Boolean).map(esc).join(' · ')}</div>${s.citation?`<div class="cit">« ${esc(s.citation)} »</div>`:''}<div class="raison">${esc(s.raison)}</div>
- <div class="wactions"><button class="btn" data-a="sugg-wish" data-i="${i}">${I('heart')} Wishlist</button><button class="btn btn-vert" data-a="sugg-col" data-i="${i}">${I('plus')} Je l'ai</button></div></div></article>`}
+ <div class="wactions"><button class="btn" data-a="sugg-wish" data-i="${i}">${I('heart')} Wishlist</button><button class="btn btn-vert" data-a="sugg-col" data-i="${i}">${I('plus')} Je l'ai</button>${btnPhoto(gq,'margin-left:auto')}</div></div></article>`}
 function pageAccueil(){const sugg=suggestions().slice(0,6);etat.suggCache=sugg;const suivis=wishlist.filter(w=>w.statut==='suivi');const derniers=[...collection].sort((a,b)=>(b.date||0)-(a.date||0)).slice(0,4);const salut=new Date().getHours()<18?'Bonjour':'Bonsoir';
  return `<div class="hero"><div class="eyebrow" style="color:var(--lime)">${salut}${params.prenom?' '+esc(params.prenom):''}</div><h1>Des maillots qui pourraient vous plaire</h1><p>Des idées calculées à partir de votre collection : mêmes clubs, mêmes pays, mêmes joueurs, mêmes équipementiers et quelques classiques incontournables. Sans intelligence artificielle, sans publicité.</p>
  <div class="stats"><span>${collection.length} maillot${collection.length>1?'s':''} en collection</span><span>${suivis.length} souhait${suivis.length>1?'s':''} surveillé${suivis.length>1?'s':''}</span><span>${sugg.length} idées du moment</span></div><div class="deco">${svgMaillot('#ffffff','#ffffff','uni')}</div></div>
@@ -924,19 +945,21 @@ function pageAccueil(){const sugg=suggestions().slice(0,6);etat.suggCache=sugg;c
  ${derniers.length?`<div class="section"><h2>Derniers ajouts</h2><button class="btn" data-a="page" data-p="collection">Voir la collection</button></div><div class="grille">${derniers.map(carteMaillot).join('')}</div>`:''}
  ${suivis.length?`<div class="section"><h2>Veille en cours</h2><button class="btn" data-a="page" data-p="wishlist">Voir la wishlist</button></div><div class="wgrille">${suivis.slice(0,2).map(carteWish).join('')}</div>`:''}`}
 
-function pageParametres(){const q=quota();const pct=Math.min(100,Math.round(q.utilise/QUOTA_MAX*100));
- return `<div class="titre-page"><div><div class="eyebrow">Réglages</div><h1>Paramètres</h1><p>Le relais Cloudflare sert uniquement à interroger Google Lens et les annonces de revente. Aucune intelligence artificielle n'est utilisée.</p></div></div>
+function pageParametres(){const q=quota();const pct=Math.min(100,Math.round(q.utilise/QUOTA_MAX*100));const nbImg=Object.keys(IMG).length;
+ return `<div class="titre-page"><div><div class="eyebrow">Réglages</div><h1>Paramètres</h1><p>Le relais Cloudflare sert uniquement à interroger Google Lens, Google Images et les annonces de revente. Aucune intelligence artificielle n'est utilisée.</p></div></div>
  <div class="carte-param"><h2>Profil</h2><div class="form"><label>Prénom<input name="prenom" value="${esc(params.prenom)}" placeholder="Pour le bonjour de l'accueil"></label></div></div>
  <div class="carte-param"><h2>Relais Cloudflare</h2><div class="form"><label class="plein">Adresse du relais<input name="relais" value="${esc(params.relais)}" placeholder="https://maillots-relais.xxxx.workers.dev"></label><label class="plein">Code secret<input name="code" type="password" value="${esc(params.code)}" placeholder="Le CODE_SECRET du Worker"></label>
+ <label class="plein">Adresse du relais images (facultatif : laisse vide si ton Worker s'appelle maillots-images)<input name="relaisImages" value="${esc(params.relaisImages||'')}" placeholder="https://maillots-images.xxxx.workers.dev"></label>
+ <label class="coche plein"><input type="checkbox" name="photosWeb" ${params.photosWeb!==false?'checked':''}> Photos Google Images automatiques (1 recherche SerpApi par maillot, mémorisée définitivement)</label>
  <label class="coche plein"><input type="checkbox" name="ebay" ${params.ebay?'checked':''}> Interroger aussi eBay lors des relevés (facultatif, si configuré sur le relais)</label><label class="coche plein"><input type="checkbox" name="veille" ${params.veille!==false?'checked':''}> Veille automatique : un relevé par jour à l'ouverture (6 maillots maximum)</label></div>
  <div class="wactions"><button class="btn btn-vert" data-a="sauver-params">${I('check')} Enregistrer</button><button class="btn" data-a="tester">${I('refresh')} Tester la connexion</button></div><div id="res-test"></div></div>
- <div class="carte-param"><h2>Quota SerpApi</h2><div class="aide" style="margin:0">${q.utilise} / ${QUOTA_MAX} recherches utilisées en ${q.mois} (compteur local, approximatif). Les réponses déjà en cache sur le relais et les photos Wikipédia ne comptent pas.</div><div class="quota"><i style="width:${pct}%"></i></div></div>
+ <div class="carte-param"><h2>Quota SerpApi</h2><div class="aide" style="margin:0">${q.utilise} / ${QUOTA_MAX} recherches utilisées en ${q.mois} (compteur local, approximatif). Les réponses déjà en cache sur le relais, les photos Google déjà mémorisées (${nbImg}) et les photos Wikipédia ne comptent pas. Les photos automatiques s'arrêtent d'elles-mêmes à 90 % du quota.</div><div class="quota"><i style="width:${pct}%"></i></div></div>
  <div class="carte-param"><h2>Sauvegarde</h2><div class="aide" style="margin:0 0 12px">L'export contient la collection, la wishlist et les photos (sans le code secret). Dernier export : ${params.dernierExport?dateFr(params.dernierExport):'jamais'}.</div><div class="wactions"><button class="btn btn-vert" data-a="exporter">${I('download')} Exporter</button><label class="btn">${I('upload')} Importer<input type="file" id="fichier-import" accept="application/json,.json" hidden></label></div></div>
- <div class="carte-param"><h2>Application</h2><div class="aide" style="margin:0 0 12px">Mes Maillots v${VERSION} · ${collection.length} maillots · ${wishlist.length} souhaits · ${EQUIPES.length} équipes et ${CLASSIQUES.length} maillots cultes dans le dictionnaire.</div><div class="wactions"><button class="btn" data-a="maj">${I('refresh')} Forcer la mise à jour de l'appli</button><button class="btn" data-a="vider-wiki">${I('trash')} Vider le cache des images web</button></div></div>`}
+ <div class="carte-param"><h2>Application</h2><div class="aide" style="margin:0 0 12px">Mes Maillots v${VERSION} · ${collection.length} maillots · ${wishlist.length} souhaits · ${EQUIPES.length} équipes et ${CLASSIQUES.length} maillots cultes dans le dictionnaire.</div><div class="wactions"><button class="btn" data-a="maj">${I('refresh')} Forcer la mise à jour de l'appli</button><button class="btn" data-a="vider-wiki">${I('trash')} Vider le cache Wikipédia</button><button class="btn" data-a="vider-img">${I('trash')} Vider les photos Google mémorisées</button></div></div>`}
 
 /* ---- fiche, formulaires ---- */
-function ficheMaillot(m){const e=trouverEquipe(m.equipe);const ph=m.photos||[];if(etat.carrousel>=ph.length)etat.carrousel=0;
- const visu=ph.length?`<img data-ph="${esc(ph[etat.carrousel])}" alt="">${ph.length>1?`<button class="fl g" data-a="carrousel" data-d="-1">${I('gauche')}</button><button class="fl d" data-a="carrousel" data-d="1">${I('droite')}</button><div class="pts">${ph.map((_,i)=>`<i class="${i===etat.carrousel?'on':''}"></i>`).join('')}</div>`:''}`:visuelEquipe(m.equipe,{texte:m.numero||saisonCourte(m.saison),c1:couleurHex(m.couleur)});
+function ficheMaillot(m){const e=trouverEquipe(m.equipe);const ph=m.photos||[];if(etat.carrousel>=ph.length)etat.carrousel=0;const gq=ph.length?'':requeteImage(m);
+ const visu=ph.length?`<img data-ph="${esc(ph[etat.carrousel])}" alt="">${ph.length>1?`<button class="fl g" data-a="carrousel" data-d="-1">${I('gauche')}</button><button class="fl d" data-a="carrousel" data-d="1">${I('droite')}</button><div class="pts">${ph.map((_,i)=>`<i class="${i===etat.carrousel?'on':''}"></i>`).join('')}</div>`:''}`:visuelEquipe(m.equipe,{texte:m.numero||saisonCourte(m.saison),c1:couleurHex(m.couleur),gq});
  const ligne=(lab,val)=>val?`<div><span class="lab">${lab}</span>${esc(val)}</div>`:'';
  return `<div class="modal"><button class="btn btn-ic fermer" data-a="fermer">${I('x')}</button>
  <div class="carrousel">${visu}<span class="badge">${esc(m.version||'Replica')}</span><button class="heart ${m.favori?'on':''}" data-a="favori" data-id="${m.id}">${I('heart')}</button></div>
@@ -944,7 +967,7 @@ function ficheMaillot(m){const e=trouverEquipe(m.equipe);const ph=m.photos||[];i
  <div class="det">${ligne('Couleur',m.couleur)}${ligne('Sponsor',m.sponsor)}${ligne('Taille',m.taille)}${ligne('État',m.etat)}${ligne('Flocage',m.joueur?m.joueur+(m.numero?' · n° '+m.numero:''):(m.numero?'n° '+m.numero:''))}${ligne('Prix d\'achat',m.prixAchat!=null&&m.prixAchat!==''?euros(m.prixAchat):'')}${ligne('Valeur estimée',m.valeur!=null&&m.valeur!==''?euros(m.valeur)+(m.dateEstimation?' (le '+dateFr(m.dateEstimation).slice(0,10)+')':''):'')}${ligne('Ajouté le',m.date?dateFr(m.date).slice(0,10):'')}</div>
  ${m.notes?`<div class="wnote" style="margin-top:0"><b>Notes.</b> ${esc(m.notes)}</div>`:''}
  ${m.similaires&&m.similaires.length?`<div class="eyebrow" style="margin-top:16px">Vu sur le web (Google Lens)</div><div class="simil">${m.similaires.map(s=>`<a href="${esc(s.lien||s.src)}" target="_blank" rel="noopener"><img src="${esc(s.src)}" alt="" loading="lazy"></a>`).join('')}</div>`:''}
- <div class="wactions" style="margin-top:20px"><button class="btn" data-a="modifier" data-id="${m.id}">${I('edit')} Modifier</button><button class="btn" data-a="estimer-fiche" data-id="${m.id}">${I('refresh')} Estimer la valeur</button><button class="btn btn-ic btn-rouge" data-a="supprimer" data-id="${m.id}" style="margin-left:auto">${I('trash')}</button></div></div>`}
+ <div class="wactions" style="margin-top:20px"><button class="btn" data-a="modifier" data-id="${m.id}">${I('edit')} Modifier</button><button class="btn" data-a="estimer-fiche" data-id="${m.id}">${I('refresh')} Estimer la valeur</button>${btnPhoto(gq)}<button class="btn btn-ic btn-rouge" data-a="supprimer" data-id="${m.id}" style="margin-left:auto">${I('trash')}</button></div></div>`}
 const opts=(liste,v)=>liste.map(o=>`<option ${o===v?'selected':''}>${esc(o)}</option>`).join('');
 function formMaillot(){const f=etat.form;
  return `<div class="modal"><button class="btn btn-ic fermer" data-a="fermer">${I('x')}</button><div class="eyebrow">${f.id?'Modifier':'Nouveau maillot'}</div><h2>${f.id?esc(f.equipe):'Ajouter un maillot'}</h2>
@@ -982,7 +1005,7 @@ function formWish(){const f=etat.form;
   <label>Couleur<select name="couleur"><option value="">—</option>${opts(COULEURS.map(c=>c[0]),f.couleur)}</select></label>
   <label>Taille<select name="taille"><option value="">—</option>${opts(TAILLES,f.taille)}</select></label>
   <label>Budget maximum (€)<input name="budget" type="number" min="0" step="1" value="${esc(f.budget)}" placeholder="130"></label>
-  <label class="plein">Lien d'une image (facultatif)<input name="imageUrl" type="url" value="${esc(f.imageUrl)}" placeholder="https://… (clic droit sur une photo du web → Copier l'adresse de l'image)"></label>
+  <label class="plein">Lien d'une image (facultatif, remplace la photo Google)<input name="imageUrl" type="url" value="${esc(f.imageUrl)}" placeholder="https://… (clic droit sur une photo du web → Copier l'adresse de l'image)"></label>
   ${f.id?`<label>Statut<select name="statut">${[['suivi','Suivi'],['trouve','Trouvé'],['abandonne','Abandonné']].map(([v,n])=>`<option value="${v}" ${f.statut===v?'selected':''}>${n}</option>`).join('')}</select></label>`:''}
   <label class="plein">Notes<textarea name="notes" placeholder="Taille recherchée, détails…">${esc(f.notes)}</textarea></label>
   <label class="coche plein"><input type="checkbox" name="alerte" ${f.alerte!==false?'checked':''}> M'alerter quand une annonce fiable passe sous le budget</label>
@@ -994,7 +1017,7 @@ function panneauNotifs(){const n=notifications();const lus=lire(K.notifs,[]);
 
 function rendre(){const pages={accueil:pageAccueil,collection:pageCollection,wishlist:pageWishlist,parametres:pageParametres};
  root.innerHTML=entete()+`<main>${(pages[etat.page]||pageAccueil)()}</main>`+barre()+(etat.panneau?panneauNotifs():'')+`<div id="modal">${etat.modal?`<div class="voile">${etat.modal()}</div>`:''}</div>`;
- document.body.style.overflow=etat.modal?'hidden':'';chargerPhotos();chargerWiki()}
+ document.body.style.overflow=etat.modal?'hidden':'';chargerPhotos();chargerVisuels()}
 function chargerPhotos(){$$('img[data-ph]').forEach(async img=>{const id=img.dataset.ph;img.removeAttribute('data-ph');const d=await PHOTOS.get(id);if(d)img.src=d;else img.style.display='none'})}
 let toastT;function toast(msg,fixe){let t=$('#toast');if(!t){t=document.createElement('div');t.id='toast';t.className='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(toastT);if(!fixe)toastT=setTimeout(()=>t.style.display='none',3500)}
 function fermerModal(){etat.modal=null;etat.form=null;etat.lens=null;etat.lensHtml='';rendre()}
@@ -1015,7 +1038,9 @@ function enregistrerWish(){const v=lireForm('#f-wish');if(!v.equipe){toast('Indi
  const w={...old,id:f.id||uid(),date:old.date||Date.now(),equipe:v.equipe,type:v.type==='Sélection'?'selection':'club',saison:v.saison,marque:v.marque,version:v.version,couleur:v.couleur,taille:v.taille,budget:v.budget===''?null:+v.budget,alerte:!!v.alerte,statut:v.statut||old.statut||'suivi',notes:v.notes,imageUrl:v.imageUrl||''};
  const i=wishlist.findIndex(x=>x.id===w.id);if(i>=0)wishlist[i]=w;else wishlist.unshift(w);sauver();fermerModal();etat.page='wishlist';etat.statutWish=w.statut;rendre();toast(i>=0?'Envie modifiée.':'Envie ajoutée : lance « Vérifier les prix » quand tu veux.')}
 async function ajouterPhotos(files){synchroForm();for(const file of files){if(etat.form.photos.length>=4)break;try{etat.form.photos.push({data:await compresser(file,1200,0.85)})}catch(e){toast('Photo illisible.')}}rendre()}
-function sauverParams(afficher){const g=n=>$(`main [name="${n}"]`);if(!g('relais'))return;params.prenom=g('prenom').value.trim();params.relais=g('relais').value.trim();params.code=g('code').value.trim();params.ebay=g('ebay').checked;params.veille=g('veille').checked;sauver();if(afficher){toast('Paramètres enregistrés.');rendre()}}
+function sauverParams(afficher){const g=n=>$(`main [name="${n}"]`);if(!g('relais'))return;params.prenom=g('prenom').value.trim();params.relais=g('relais').value.trim();params.code=g('code').value.trim();params.relaisImages=g('relaisImages')?g('relaisImages').value.trim():'';params.photosWeb=g('photosWeb')?g('photosWeb').checked:true;params.ebay=g('ebay').checked;params.veille=g('veille').checked;sauver();if(afficher){toast('Paramètres enregistrés.');rendre()}}
+async function testerImages(){const base=urlImages();if(!base)return 'Photos Google : relais images introuvable (le relais doit s\'appeler maillots-relais, ou indique l\'adresse du relais images)';
+ try{const r=await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:params.code,action:'test'})});const j=await r.json().catch(()=>({}));if(!r.ok||j.ok===false)return 'Photos Google : '+(j.erreur||('erreur '+r.status));return `Photos Google OK (v${j.version}${j.serpapi?'':', SERPAPI_KEY manquante'}${j.kv?'':', KV PHOTOS non lié'})`}catch(e){return 'Photos Google : relais images injoignable'}}
 async function exporter(){const photos=await PHOTOS.tout();const data={app:'mes-maillots',version:VERSION,date:new Date().toISOString(),collection,wishlist,params:{...params,code:''},photos};
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));a.download=`mes-maillots-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);params.dernierExport=Date.now();sauver();rendre();toast('Export téléchargé.')}
 async function importer(file){const d=JSON.parse(await file.text());if(!Array.isArray(d.collection))throw new Error('fichier non reconnu');
@@ -1038,6 +1063,7 @@ function brancher(){
    case 'estimer-fiche':{const m=collection.find(x=>x.id===id);if(m)await estimerMaillot(m);break}
    case 'estimer':{synchroForm();if(!etat.form.equipe){toast('Indique l\'équipe d\'abord.');return}const s=await estimation(etat.form);if(s){etat.form.valeur=s.mediane;rendre();toast(`Médiane ${euros(s.mediane)} sur ${s.nb} annonces (${s.ecartes} écartées).`)}break}
    case 'carrousel':{const n=((collection.find(x=>x.id===etat.ficheId)||{}).photos||[]).length;if(n){etat.carrousel=(etat.carrousel+(+el.dataset.d)+n)%n;rendre()}break}
+   case 'img-suivante':{ev.stopPropagation();const c=IMG[norm(el.dataset.q)];if(c&&c.images.length>1){c.i=((c.i||0)+1)%c.images.length;ecrire(K.img,IMG);rendre();toast(`Photo ${c.i+1}/${c.images.length}${c.images[c.i].source?' · '+c.images[c.i].source:''}`)}else toast(c?'Une seule photo disponible pour ce maillot.':'Photo pas encore chargée, réessaie dans un instant.');break}
    case 'wish-statut':etat.statutWish=el.dataset.s;rendre();break;
    case 'wish-modifier':{const w=wishlist.find(x=>x.id===id);if(w)ouvrirFormWish(w);break}
    case 'wish-trouve':{const w=wishlist.find(x=>x.id===id);if(w){w.statut='trouve';w.dateTrouve=Date.now();sauver();etat.statutWish='trouve';rendre();if(confirm('Bravo ! Veux-tu l\'ajouter tout de suite à ta collection ?'))ouvrirFormMaillot(depuisWish(w))}break}
@@ -1060,15 +1086,16 @@ function brancher(){
    case 'enregistrer':await enregistrerMaillot();break;
    case 'wish-enregistrer':enregistrerWish();break;
    case 'sauver-params':sauverParams(true);break;
-   case 'tester':{sauverParams(false);const z=$('#res-test');if(z)z.innerHTML='<div class="aide">Test en cours…</div>';
-    try{const j=await relais('test');if(z)z.innerHTML=`<div class="aide" style="color:var(--vert)">Connexion OK · relais v${esc(j.version)} · SerpApi ${j.serpapi?'OK':'absent'} · Lens ${j.lens?'OK':'absent'} · eBay ${j.ebay?'OK':'non configuré'}</div>`}
-    catch(e){if(z)z.innerHTML=`<div class="aide" style="color:var(--rouge)">Échec : ${esc(e.message)}</div>`}break}
+   case 'tester':{sauverParams(false);const z=$('#res-test');if(z)z.innerHTML='<div class="aide">Test en cours…</div>';let txt='',ok=true;
+    try{const j=await relais('test');txt=`Connexion OK · relais v${esc(j.version)} · SerpApi ${j.serpapi?'OK':'absent'} · Lens ${j.lens?'OK':'absent'} · eBay ${j.ebay?'OK':'non configuré'}`}catch(e){ok=false;txt='Échec : '+esc(e.message)}
+    const im=await testerImages();if(z)z.innerHTML=`<div class="aide" style="color:var(--${ok?'vert':'rouge'})">${txt}</div><div class="aide" style="color:var(--${im.startsWith('Photos Google OK')?'vert':'rouge'})">${esc(im)}</div>`;break}
    case 'exporter':await exporter();break;
-   case 'vider-wiki':for(const k in WIKI)delete WIKI[k];ecrire(K.wiki,WIKI);rendre();toast('Cache des images web vidé.');break;
+   case 'vider-wiki':for(const k in WIKI)delete WIKI[k];ecrire(K.wiki,WIKI);rendre();toast('Cache Wikipédia vidé.');break;
+   case 'vider-img':if(confirm('Oublier les photos Google mémorisées sur ce téléphone ? Elles seront rechargées depuis le relais (sans dépenser de recherche si le relais les a encore).')){for(const k in IMG)delete IMG[k];ecrire(K.img,IMG);rendre();toast('Photos Google oubliées.')}break;
    case 'maj':{try{if(navigator.serviceWorker){const rs=await navigator.serviceWorker.getRegistrations();for(const r of rs)await r.unregister()}if(window.caches){for(const k of await caches.keys())await caches.delete(k)}}catch(e){}location.reload();break}
    case 'reset-filtres':etat.recherche='';etat.filtres={equipe:'',saison:'',couleur:'',categorie:''};rendre();break;
   }});
- root.addEventListener('input',ev=>{if(ev.target.id==='recherche'){etat.recherche=ev.target.value;clearTimeout(rechT);rechT=setTimeout(()=>{const z=$('#zone-liste');if(z){z.innerHTML=listeCollection();chargerPhotos();chargerWiki()}},150)}});
+ root.addEventListener('input',ev=>{if(ev.target.id==='recherche'){etat.recherche=ev.target.value;clearTimeout(rechT);rechT=setTimeout(()=>{const z=$('#zone-liste');if(z){z.innerHTML=listeCollection();chargerPhotos();chargerVisuels()}},150)}});
  root.addEventListener('change',async ev=>{const t=ev.target;if(t.classList.contains('pilule')){etat.filtres[t.dataset.f]=t.value;rendre()}else if(t.id==='fichier-photo'){await ajouterPhotos([...t.files])}else if(t.id==='fichier-import'&&t.files[0]){try{await importer(t.files[0])}catch(e){toast('Import impossible : '+e.message)}}});
  document.addEventListener('keydown',ev=>{if(ev.key==='Escape'&&etat.modal)fermerModal()});
 }
@@ -1096,8 +1123,8 @@ main{max-width:1180px;margin:0 auto;padding:28px 20px 110px}
 .grille{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px}
 .carte{background:#fff;border:1px solid var(--ligne);border-radius:18px;overflow:hidden;cursor:pointer;transition:transform .15s,box-shadow .15s}.carte:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(0,0,0,.08)}
 .img{position:relative;aspect-ratio:4/3;background:var(--beige);overflow:hidden}.img>img{width:100%;height:100%;object-fit:cover;display:block}
-.visu{width:100%;height:100%;display:grid;place-items:center;position:relative}.visu-img{width:100%;height:100%;object-fit:cover;display:block}.visu-img.logo{object-fit:contain;padding:10%}.visu-drapeau{width:100%;height:100%;object-fit:cover;display:block}.visu-maillot{width:60%;max-width:200px}.visu-maillot svg{width:100%;height:auto;display:block}
-.visu>.visu-img+.visu-maillot,.visu>.visu-img+.visu-drapeau{display:none}
+.visu{width:100%;height:100%;display:grid;place-items:center;position:relative;background:#fff}.visu-img{width:100%;height:100%;object-fit:cover;display:block;background:#fff}.visu-img.logo{object-fit:contain;padding:10%}.visu-drapeau{width:100%;height:100%;object-fit:cover;display:block}.visu-maillot{width:60%;max-width:200px}.visu-maillot svg{width:100%;height:auto;display:block}
+.visu:has(.visu-maillot):not(:has(.visu-img)){background:var(--beige)}.visu>.visu-img+.visu-maillot,.visu>.visu-img+.visu-drapeau{display:none}
 .badge{position:absolute;top:10px;left:10px;background:rgba(245,243,238,.96);border-radius:999px;padding:4px 10px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;font-weight:600;z-index:2}
 .heart{position:absolute;top:8px;right:8px;width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.92);color:#555;display:grid;place-items:center;cursor:pointer;z-index:2}.heart.on{color:var(--rouge)}.heart.on svg{fill:var(--rouge);animation:pop .3s}@keyframes pop{50%{transform:scale(1.3)}}
 .corps{padding:14px 16px 16px}.corps h3{font-size:19px;line-height:1.2}.corps h3 small{font-family:Inter,sans-serif;font-size:13px;color:var(--gris);font-weight:500}.meta{color:var(--gris);font-size:13px;margin-top:3px}.bas{display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px}.bas b{font-family:'Playfair Display',Georgia,serif;font-size:18px}
@@ -1106,7 +1133,7 @@ main{max-width:1180px;margin:0 auto;padding:28px 20px 110px}
 .aide{color:var(--gris);font-size:13px;margin:6px 0}
 .wgrille{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
 .wcarte{background:#fff;border:1px solid var(--ligne);border-radius:18px;padding:20px}.wtete{display:flex;gap:14px;align-items:flex-start}.wtete h3{font-size:22px;line-height:1.15}
-.wvisu{width:72px;height:72px;border-radius:14px;overflow:hidden;background:var(--beige);flex:none}.wvisu .visu-maillot{width:78%}.wvisu .visu-img{object-fit:cover}.wvisu .visu-img.logo{object-fit:contain;padding:8%}
+.wvisu{width:72px;height:72px;border-radius:14px;overflow:hidden;background:var(--beige);flex:none}.wvisu.grand{width:96px;height:96px}.wvisu .visu-maillot{width:78%}.wvisu .visu-img{object-fit:cover}.wvisu .visu-img.logo{object-fit:contain;padding:8%}
 .wbell{margin-left:auto;width:40px;height:40px;border-radius:50%;border:0;background:#e9f1da;color:#2f4a1e;display:grid;place-items:center;cursor:pointer;flex:none}.wbell svg{fill:#2f4a1e}.wbell.off{background:var(--beige);color:#999}.wbell.off svg{fill:none}
 .wsep{border-top:1px solid var(--ligne);margin:16px 0}.wprix{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.wprix .val{font-family:'Playfair Display',Georgia,serif;font-size:22px;margin-top:4px}.arelever{font-family:Inter,sans-serif;font-size:14px;color:var(--gris);font-style:italic}
 .wnote{font-size:13px;color:#3f4a44;margin-top:12px;line-height:1.5}.wnote a{color:var(--vert);display:inline-flex;align-items:center;gap:4px}.wnote .ic{width:14px;height:14px}
@@ -1114,13 +1141,13 @@ main{max-width:1180px;margin:0 auto;padding:28px 20px 110px}
 .hero{background:var(--vert);color:#fff;border-radius:24px;padding:40px;position:relative;overflow:hidden;margin-bottom:28px}.hero h1{font-size:40px;line-height:1.1;margin:8px 0 12px;max-width:620px}.hero p{max-width:620px;opacity:.85;margin:0}.stats{display:flex;gap:22px;flex-wrap:wrap;margin-top:22px;font-size:14px;position:relative;z-index:1}.stats span::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--or);margin-right:8px}.deco{position:absolute;right:-30px;bottom:-50px;width:280px;opacity:.08}
 .section{display:flex;justify-content:space-between;align-items:center;margin:28px 0 14px;gap:10px}.section h2{font-size:26px}
 .sugg{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}.sugg-carte{cursor:default}.cit{font-style:italic;color:#3f4a44;font-size:13.5px;margin-top:8px;font-family:'Playfair Display',Georgia,serif;line-height:1.45}.raison{font-size:12px;color:var(--gris);margin-top:6px}
-.vide{text-align:center;padding:50px 20px;background:#fff;border:1px dashed var(--ligne);border-radius:18px;color:var(--gris)}.vide h3{color:var(--texte);margin:14px 0 6px;font-size:22px}.vide .visu{width:100px;height:100px;margin:0 auto}.vide .visu-maillot{width:100%}
+.vide{text-align:center;padding:50px 20px;background:#fff;border:1px dashed var(--ligne);border-radius:18px;color:var(--gris)}.vide h3{color:var(--texte);margin:14px 0 6px;font-size:22px}.vide .visu{width:100px;height:100px;margin:0 auto;background:none}.vide .visu-maillot{width:100%}
 .carte-param{background:#fff;border:1px solid var(--ligne);border-radius:18px;padding:22px;margin-bottom:16px}.carte-param h2{font-size:22px;margin-bottom:12px}
 .form{display:grid;grid-template-columns:1fr 1fr;gap:12px}.form label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--gris);font-weight:600;letter-spacing:.04em}.form input,.form select,.form textarea{border:1px solid var(--ligne);border-radius:12px;padding:10px 12px;font:inherit;font-size:15px;color:var(--texte);background:#fafaf7;width:100%}.form textarea{min-height:70px;resize:vertical}.form .plein{grid-column:1/-1}.form .coche{flex-direction:row;align-items:center;gap:10px;font-weight:500;color:var(--texte);letter-spacing:0;font-size:14px}.form .coche input{width:18px;height:18px}
 .quota{height:8px;background:var(--beige);border-radius:999px;overflow:hidden;margin-top:10px}.quota i{display:block;height:100%;background:var(--vert)}
 .voile{position:fixed;inset:0;background:rgba(20,32,27,.55);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:30px 14px;overflow:auto}
 .modal{background:#fff;border-radius:22px;padding:26px;width:100%;max-width:700px;position:relative}.modal h2{font-size:28px;margin:4px 0 14px;padding-right:44px}.fermer{position:absolute;top:14px;right:14px;z-index:3}
-.carrousel{position:relative;aspect-ratio:4/3;border-radius:16px;overflow:hidden;background:var(--beige);display:grid;place-items:center;margin-bottom:16px}.carrousel>img{width:100%;height:100%;object-fit:contain;display:block}.carrousel .visu-maillot{width:45%}.carrousel .visu-drapeau{width:60%;height:auto}
+.carrousel{position:relative;aspect-ratio:4/3;border-radius:16px;overflow:hidden;background:var(--beige);display:grid;place-items:center;margin-bottom:16px}.carrousel>img{width:100%;height:100%;object-fit:contain;display:block}.carrousel .visu-maillot{width:45%}.carrousel .visu-drapeau{width:60%;height:auto}.carrousel .visu-img{object-fit:contain}
 .fl{position:absolute;top:50%;transform:translateY(-50%);width:38px;height:38px;border-radius:50%;border:0;background:rgba(255,255,255,.9);cursor:pointer;display:grid;place-items:center;z-index:2}.fl.g{left:10px}.fl.d{right:10px}.pts{position:absolute;bottom:10px;left:0;right:0;display:flex;justify-content:center;gap:6px}.pts i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.6)}.pts i.on{background:#fff}
 .ftete{display:flex;gap:14px;align-items:center;margin-bottom:14px}.ftete h2{margin:2px 0 4px;padding-right:0}.det{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;font-size:14px;margin:14px 0}.det .lab{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--gris)}
 .photos-edit{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}.ph{width:96px;height:96px;border-radius:14px;overflow:hidden;position:relative;background:var(--beige);border:1px dashed var(--ligne);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:12px;color:var(--gris);cursor:pointer}.ph img{width:100%;height:100%;object-fit:cover}.ph .x{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;border:0;background:rgba(255,255,255,.9);display:grid;place-items:center;cursor:pointer}.ph .x .ic{width:12px;height:12px}
@@ -1132,7 +1159,7 @@ main{max-width:1180px;margin:0 auto;padding:28px 20px 110px}
 @media(max-width:760px){.nav,.btn-ajouter{display:none}.barre{display:flex;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--ligne);z-index:30;padding:6px 6px calc(6px + env(safe-area-inset-bottom))}.barre button{flex:1;border:0;background:none;font:inherit;font-size:11px;color:var(--gris);display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;cursor:pointer}.barre button.on{color:var(--vert);font-weight:600}.barre .plus{flex:none;width:54px;height:54px;border-radius:50%;background:var(--vert);color:#fff;margin-top:-22px;display:grid;place-items:center;box-shadow:0 6px 16px rgba(20,61,47,.35)}.barre .plus .ic{width:24px;height:24px}
 .kpis{grid-template-columns:1fr 1fr}.kpi .val{font-size:24px}.titre-page h1,.hero h1{font-size:30px}.hero{padding:26px}.form,.det{grid-template-columns:1fr}.wgrille{grid-template-columns:1fr}.panneau{top:64px;right:10px}.modal{padding:20px}.voile{padding:14px 8px}.toast{bottom:100px}}
 `;
-function styles(){$$('style[id^="style-v"]').forEach(s=>s.remove());if(!$('#fonts-mm')){const l=document.createElement('link');l.id='fonts-mm';l.rel='stylesheet';l.href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@500;600;700&display=swap';document.head.appendChild(l)}const s=document.createElement('style');s.id='style-v31';s.textContent=CSS;document.head.appendChild(s)}
+function styles(){$$('style[id^="style-v"]').forEach(s=>s.remove());if(!$('#fonts-mm')){const l=document.createElement('link');l.id='fonts-mm';l.rel='stylesheet';l.href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@500;600;700&display=swap';document.head.appendChild(l)}const s=document.createElement('style');s.id='style-v33';s.textContent=CSS;document.head.appendChild(s)}
 
 /* ===================== DÉMARRAGE ===================== */
 async function demarrer(){styles();root=$('#app');if(!root){root=document.createElement('div');root.id='app';document.body.appendChild(root)}
