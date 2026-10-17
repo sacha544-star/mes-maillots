@@ -1,6 +1,6 @@
 'use strict';
 (function(){
-const VERSION='3.1';
+const VERSION='3.2';
 const QUOTA_MAX=250;
 
 /* ===================== UTILITAIRES ===================== */
@@ -9,12 +9,12 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const euros=n=>(n==null||n===''||isNaN(n))?'—':Math.round(+n).toLocaleString('fr-FR')+' €';
 const lire=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}};
-const ecrire=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
+const ecrire=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
 const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
 const hash=s=>{let h=0;for(const c of String(s))h=(h*31+c.charCodeAt(0))|0;return Math.abs(h)};
 const dateFr=ts=>ts?new Date(ts).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
 const saisonCourte=s=>{const m=String(s||'').match(/(\d{2})(\d{2})/);return m?m[2]:''};
-const K={col:'mm_collection',wish:'mm_wishlist',params:'mm_params',quota:'mm_quota',notifs:'mm_notifs_lus',veille:'mm_veille'};
+const K={col:'mm_collection',wish:'mm_wishlist',params:'mm_params',quota:'mm_quota',notifs:'mm_notifs_lus',veille:'mm_veille',wiki:'mm_wiki'};
 
 /* ===================== LISTES ===================== */
 const VERSIONS=['Replica','Authentic','Porté en match','Autre'];
@@ -331,7 +331,7 @@ Coventry City|Angleterre|#6cabdd|#ffffff|uni|Coventry,Sky Blues
 Portsmouth|Angleterre|#1b3a8a|#ffffff|uni|Pompey
 Hull City|Angleterre|#f9a01b|#000000|rayures|Hull,Tigers
 Luton Town|Angleterre|#f26a1b|#ffffff|uni|Luton,Hatters
-Birmingham City|Angleterre|#1b3a8a|#ffffff|uni|Birmingham,Blues Birmingham
+Birmingham City|Angleterre|#1b3a8a|#ffffff|uni|Birmingham
 Charlton Athletic|Angleterre|#c8102e|#ffffff|uni|Charlton,Addicks
 AFC Wimbledon|Angleterre|#1b3a8a|#f9d548|uni|Wimbledon,Dons
 Millwall|Angleterre|#1b3a8a|#ffffff|uni|Lions Millwall
@@ -345,7 +345,7 @@ Cardiff City|Pays de Galles|#1b3a8a|#ffffff|uni|Cardiff,Bluebirds
 Wrexham AFC|Pays de Galles|#c8102e|#ffffff|uni|Wrexham
 Celtic|Écosse|#1b8a3c|#ffffff|cerceaux|Celtic FC,Celtic Glasgow,Bhoys
 Rangers|Écosse|#1b3a8a|#ffffff|uni|Glasgow Rangers,Rangers FC,Gers
-Aberdeen|Écosse|#c8102e|#ffffff|uni|Aberdeen FC,Dons Aberdeen
+Aberdeen|Écosse|#c8102e|#ffffff|uni|Aberdeen FC
 Hearts|Écosse|#7a1f1f|#ffffff|uni|Heart of Midlothian,Jambos
 Hibernian|Écosse|#1b8a3c|#ffffff|manches|Hibs
 Dundee United|Écosse|#f26a1b|#000000|uni|Dundee Utd
@@ -357,7 +357,7 @@ Real Betis|Espagne|#1b8a3c|#ffffff|rayures|Betis,Betis Séville
 Valence CF|Espagne|#ffffff|#000000|uni|Valencia,Valence,Valencia CF
 Villarreal|Espagne|#f9d548|#1b3a8a|uni|Villarreal CF,Submarino Amarillo
 Athletic Bilbao|Espagne|#c8102e|#ffffff|rayures|Athletic Club,Bilbao,Athletic
-Real Sociedad|Espagne|#1b3a8a|#ffffff|rayures|Real Sociedad,Txuri-urdin
+Real Sociedad|Espagne|#1b3a8a|#ffffff|rayures|Txuri-urdin
 Celta Vigo|Espagne|#6cabdd|#ffffff|uni|Celta,Celta de Vigo
 Espanyol|Espagne|#1b3a8a|#ffffff|rayures|RCD Espanyol,Espanyol Barcelone
 Getafe|Espagne|#1b3a8a|#ffffff|uni|Getafe CF
@@ -392,7 +392,7 @@ Atalanta|Italie|#000000|#1b3a8a|rayures|Atalanta Bergame,Atalanta BC
 Fiorentina|Italie|#5a2d91|#ffffff|uni|ACF Fiorentina,Viola,Florence
 Torino|Italie|#7a1f1f|#ffffff|uni|Torino FC,Toro,Granata
 Bologne|Italie|#c8102e|#1b3a8a|rayures|Bologna,Bologna FC
-Sampdoria|Italie|#1b3a8a|#ffffff|bande|Samp,UC Sampdoria,Gênes Sampdoria
+Sampdoria|Italie|#1b3a8a|#ffffff|bande|Samp,UC Sampdoria
 Genoa|Italie|#c8102e|#1b3a8a|moitie|Genoa CFC,Gênes
 Parme|Italie|#f9d548|#1b3a8a|rayures|Parma,Parma Calcio
 Udinese|Italie|#000000|#ffffff|rayures|Udinese Calcio,Udine
@@ -436,7 +436,7 @@ TSG Hoffenheim|Allemagne|#1b3a8a|#ffffff|uni|Hoffenheim
 SC Fribourg|Allemagne|#c8102e|#ffffff|uni|Freiburg,Fribourg,SC Freiburg
 FC Cologne|Allemagne|#ffffff|#c8102e|uni|1. FC Köln,Koln,Köln,Cologne
 Mayence 05|Allemagne|#c8102e|#ffffff|uni|Mainz,Mainz 05,Mayence
-Union Berlin|Allemagne|#c8102e|#ffffff|uni|1. FC Union Berlin,Union
+Union Berlin|Allemagne|#c8102e|#ffffff|uni|1. FC Union Berlin
 Hertha Berlin|Allemagne|#1b3a8a|#ffffff|rayures|Hertha BSC,Hertha
 FC Augsbourg|Allemagne|#ffffff|#c8102e|uni|Augsburg,Augsbourg
 Fortuna Düsseldorf|Allemagne|#c8102e|#ffffff|uni|Dusseldorf,Düsseldorf
@@ -450,7 +450,7 @@ Arminia Bielefeld|Allemagne|#000000|#ffffff|uni|Bielefeld,Arminia
 Dynamo Dresde|Allemagne|#f9d548|#000000|uni|Dynamo Dresden,Dresde
 Hansa Rostock|Allemagne|#1b3a8a|#ffffff|uni|Rostock
 Karlsruher SC|Allemagne|#1b3a8a|#ffffff|uni|Karlsruhe,KSC
-1860 Munich|Allemagne|#6cabdd|#ffffff|uni|TSV 1860 München,1860 München,Löwen
+1860 Munich|Allemagne|#6cabdd|#ffffff|uni|TSV 1860 München,1860 München
 Eintracht Brunswick|Allemagne|#f9d548|#1b3a8a|uni|Braunschweig,Eintracht Braunschweig
 Darmstadt 98|Allemagne|#1b3a8a|#ffffff|uni|Darmstadt,Lilien
 Greuther Fürth|Allemagne|#1b8a3c|#ffffff|uni|Fürth,Furth
@@ -486,7 +486,7 @@ Union Saint-Gilloise|Belgique|#f9d548|#1b3a8a|uni|Union SG,USG,Royale Union
 Cercle Bruges|Belgique|#1b8a3c|#000000|rayures|Cercle Brugge,Cercle
 Sporting Charleroi|Belgique|#000000|#ffffff|rayures|Charleroi,Zèbres
 KV Malines|Belgique|#f9d548|#c8102e|rayures|Mechelen,KV Mechelen,Malines
-FC Bâle|Suisse|#c8102e|#1b3a8a|moitie|Basel,Bâle,FC Basel,FCB Bâle
+FC Bâle|Suisse|#c8102e|#1b3a8a|moitie|Basel,Bâle,FC Basel
 Young Boys|Suisse|#f9d548|#000000|uni|BSC Young Boys,YB,Berne
 FC Zurich|Suisse|#ffffff|#1b3a8a|uni|FCZ,Zürich,FC Zürich
 Grasshopper|Suisse|#1b3a8a|#ffffff|moitie|GC Zurich,Grasshoppers,GCZ
@@ -512,7 +512,7 @@ Dynamo Kiev|Ukraine|#ffffff|#1b3a8a|uni|Dynamo Kyiv,Dinamo Kiev,Kiev
 Shakhtar Donetsk|Ukraine|#f26a1b|#000000|uni|Shakhtar,Chakhtar,Donetsk
 Spartak Moscou|Russie|#c8102e|#ffffff|bande|Spartak Moscow,Spartak
 CSKA Moscou|Russie|#c8102e|#1b3a8a|moitie|CSKA Moscow,CSKA
-Zénith Saint-Pétersbourg|Russie|#6cabdd|#ffffff|uni|Zenit,Zénith,Zenit St Petersburg,Zenit Saint-Petersbourg
+Zénith Saint-Pétersbourg|Russie|#6cabdd|#ffffff|uni|Zenit,Zénith,Zenit St Petersburg
 Lokomotiv Moscou|Russie|#1b8a3c|#c8102e|uni|Lokomotiv,Lokomotiv Moscow
 Dinamo Moscou|Russie|#1b3a8a|#ffffff|uni|Dinamo Moscow,Dynamo Moscou
 Étoile rouge de Belgrade|Serbie|#c8102e|#ffffff|rayures|Red Star Belgrade,Crvena Zvezda,Etoile Rouge,Zvezda
@@ -550,7 +550,7 @@ SK Brann|Norvège|#c8102e|#ffffff|uni|Brann,Bergen
 Vålerenga|Norvège|#1b3a8a|#c8102e|uni|Valerenga,VIF
 Viking FK|Norvège|#1b3a8a|#ffffff|uni|Viking Stavanger,Viking
 Lillestrøm|Norvège|#f9d548|#000000|uni|Lillestrom,LSK
-FC Copenhague|Danemark|#ffffff|#1b3a8a|uni|FC København,FCK,Copenhague,Copenhagen
+FC Copenhague|Danemark|#ffffff|#1b3a8a|uni|FC København,Copenhague,Copenhagen
 Brøndby|Danemark|#f9d548|#1b3a8a|uni|Brondby,Brøndby IF
 FC Midtjylland|Danemark|#000000|#c8102e|rayures|Midtjylland,FCM
 AGF Aarhus|Danemark|#ffffff|#1b3a8a|uni|AGF,Aarhus
@@ -558,19 +558,19 @@ AaB Aalborg|Danemark|#c8102e|#ffffff|uni|AaB,Aalborg
 HJK Helsinki|Finlande|#1b3a8a|#ffffff|rayures|HJK,Helsinki
 KR Reykjavik|Islande|#000000|#ffffff|rayures|KR
 Boca Juniors|Argentine|#1b3a8a|#f9d548|bande|Boca,CABJ,Xeneizes
-River Plate|Argentine|#ffffff|#c8102e|diag|River,CARP,Millonarios River
+River Plate|Argentine|#ffffff|#c8102e|diag|River,CARP
 Independiente|Argentine|#c8102e|#ffffff|uni|CA Independiente,Rojo
 Racing Club|Argentine|#6cabdd|#ffffff|rayures|Racing Avellaneda,La Academia
 San Lorenzo|Argentine|#1b3a8a|#c8102e|rayures|San Lorenzo de Almagro,Ciclón
 Newell's Old Boys|Argentine|#c8102e|#000000|moitie|Newells,Newell's
-Rosario Central|Argentine|#1b3a8a|#f9d548|rayures|Central,Canallas
+Rosario Central|Argentine|#1b3a8a|#f9d548|rayures|Canallas
 Vélez Sarsfield|Argentine|#ffffff|#1b3a8a|bandev|Velez,Vélez
 Estudiantes|Argentine|#c8102e|#ffffff|rayures|Estudiantes de La Plata,Pincha
 Argentinos Juniors|Argentine|#c8102e|#ffffff|uni|Argentinos
 Flamengo|Brésil|#c8102e|#000000|cerceaux|CR Flamengo,Mengão,Fla
 Palmeiras|Brésil|#1b8a3c|#ffffff|uni|SE Palmeiras,Verdão
 Corinthians|Brésil|#ffffff|#000000|uni|SC Corinthians,Timão
-São Paulo FC|Brésil|#ffffff|#c8102e|cerceaux|Sao Paulo,São Paulo,SPFC,Tricolor Paulista
+São Paulo FC|Brésil|#ffffff|#c8102e|cerceaux|Sao Paulo,São Paulo,SPFC
 Santos FC|Brésil|#ffffff|#000000|uni|Santos,Peixe
 Fluminense|Brésil|#7a1f1f|#1b8a3c|rayures|Flu,Tricolor Carioca
 Vasco da Gama|Brésil|#000000|#ffffff|diag|Vasco,CR Vasco
@@ -581,7 +581,7 @@ Cruzeiro|Brésil|#1b3a8a|#ffffff|uni|Cruzeiro EC,Raposa
 Atlético Mineiro|Brésil|#000000|#ffffff|rayures|Atletico Mineiro,Galo,Atlético-MG
 Athletico Paranaense|Brésil|#c8102e|#000000|cerceaux|Atlético Paranaense,Furacão,Athletico-PR
 EC Bahia|Brésil|#1b3a8a|#c8102e|uni|Bahia
-Fortaleza EC|Brésil|#c8102e|#1b3a8a|cerceaux|Fortaleza,Leão
+Fortaleza EC|Brésil|#c8102e|#1b3a8a|cerceaux|Fortaleza
 Peñarol|Uruguay|#f9d548|#000000|rayures|Penarol,CA Peñarol,Carboneros
 Nacional|Uruguay|#ffffff|#1b3a8a|uni|Club Nacional,Nacional Montevideo,Bolso
 Colo-Colo|Chili|#ffffff|#000000|uni|Colo Colo,Cacique
@@ -589,12 +589,12 @@ Universidad de Chile|Chili|#1b3a8a|#ffffff|uni|La U,U de Chile
 Universidad Católica|Chili|#ffffff|#1b3a8a|diag|Universidad Catolica,Cruzados
 Atlético Nacional|Colombie|#1b8a3c|#ffffff|rayures|Atletico Nacional,Nacional Medellin,Verdolaga
 Millonarios|Colombie|#1b3a8a|#ffffff|uni|Millonarios FC,Embajadores
-América de Cali|Colombie|#c8102e|#ffffff|uni|America de Cali,Diablos Rojos
+América de Cali|Colombie|#c8102e|#ffffff|uni|America de Cali
 Independiente Medellín|Colombie|#c8102e|#1b3a8a|uni|DIM,Independiente Medellin
 Club Olimpia|Paraguay|#ffffff|#000000|bande|Olimpia,Olimpia Asuncion
 Cerro Porteño|Paraguay|#c8102e|#1b3a8a|moitie|Cerro Porteno,Cerro
 Alianza Lima|Pérou|#1b3a8a|#ffffff|rayures|Alianza,Blanquiazules
-Universitario|Pérou|#f4e3c1|#7a1f1f|diag|Universitario de Deportes,La U Peru,Cremas
+Universitario|Pérou|#f4e3c1|#7a1f1f|diag|Universitario de Deportes,Cremas
 LDU Quito|Équateur|#ffffff|#1b3a8a|uni|LDU,Liga de Quito
 Barcelona SC|Équateur|#f9d548|#000000|uni|Barcelona Guayaquil,Idolo
 Club América|Mexique|#f9d548|#1b3a8a|uni|America,Club America,Aguilas
@@ -604,7 +604,7 @@ Pumas UNAM|Mexique|#f4e3c1|#1b3a8a|uni|Pumas,UNAM
 Tigres UANL|Mexique|#f9d548|#1b3a8a|uni|Tigres,UANL
 CF Monterrey|Mexique|#1b3a8a|#ffffff|rayures|Monterrey,Rayados
 Santos Laguna|Mexique|#1b8a3c|#ffffff|uni|Santos Torreon,Guerreros
-Deportivo Toluca|Mexique|#c8102e|#ffffff|uni|Toluca,Diablos Rojos Toluca
+Deportivo Toluca|Mexique|#c8102e|#ffffff|uni|Toluca
 Atlas FC|Mexique|#c8102e|#000000|rayures|Atlas,Atlas Guadalajara,Zorros
 Club León|Mexique|#1b8a3c|#ffffff|uni|Leon,León,Esmeraldas
 LA Galaxy|États-Unis|#ffffff|#1b3a8a|uni|Galaxy,Los Angeles Galaxy
@@ -618,14 +618,14 @@ Portland Timbers|États-Unis|#1b8a3c|#f9d548|uni|Timbers,Portland
 D.C. United|États-Unis|#000000|#c8102e|uni|DC United,Washington
 Chicago Fire|États-Unis|#c8102e|#1b3a8a|uni|Chicago,Fire FC
 Columbus Crew|États-Unis|#f9d548|#000000|uni|Columbus,Crew
-Toronto FC|Canada|#c8102e|#808080|uni|Toronto,TFC Toronto
+Toronto FC|Canada|#c8102e|#808080|uni|Toronto
 CF Montréal|Canada|#1b3a8a|#000000|uni|Impact Montréal,Montreal,Montréal
 Vancouver Whitecaps|Canada|#ffffff|#1b3a8a|uni|Whitecaps,Vancouver
 Al-Ahly|Égypte|#c8102e|#ffffff|uni|Al Ahly,Ahly,Al Ahly SC
 Zamalek|Égypte|#ffffff|#c8102e|uni|Zamalek SC
 Raja Casablanca|Maroc|#1b8a3c|#ffffff|uni|Raja,Raja CA,RCA
 Wydad Casablanca|Maroc|#c8102e|#ffffff|uni|Wydad,WAC,Wydad AC
-Espérance de Tunis|Tunisie|#c8102e|#f9d548|rayures|Esperance,EST,Espérance Sportive de Tunis,Taraji
+Espérance de Tunis|Tunisie|#c8102e|#f9d548|rayures|Esperance,EST,Taraji
 Étoile du Sahel|Tunisie|#c8102e|#ffffff|uni|Etoile du Sahel,ESS,Sousse
 Club Africain|Tunisie|#c8102e|#ffffff|moitie|CA Tunis
 MC Alger|Algérie|#1b8a3c|#c8102e|uni|Mouloudia,MCA,Mouloudia d'Alger
@@ -666,38 +666,49 @@ Auckland City|Nouvelle-Zélande|#1b3a8a|#ffffff|uni|Auckland
 Wellington Phoenix|Nouvelle-Zélande|#f9d548|#000000|uni|Phoenix,Wellington
 `;
 
-/* Maillots cultes : Equipe|saison|marque|c1|c2|motif|citation */
+/* Maillots cultes : Equipe|saison|marque|joueur|c1|c2|motif|citation|pages Wikipédia (photo) séparées par ; */
 const CLASSIQUES_BRUT=`
-Nigeria|2018|Nike|#1b8a3c|#ffffff|damier|Épuisé en quelques minutes à sa sortie, le maillot le plus désiré du Mondial 2018.
-Pays-Bas|1988|Adidas|#f26a1b|#ffffff|cerceaux|Le motif géométrique porté par Van Basten pour le sacre de l'Euro 88.
-Allemagne|1990|Adidas|#ffffff|#1a1a1a|bande|Les trois traits noir, rouge et or de la nuit de Rome.
-France|1998|Adidas|#1b3a8a|#ffffff|bande|La bande rouge et blanche du 12 juillet 1998.
-Brésil|1970|Athleta|#f9d548|#1b8a3c|uni|Le jaune de Pelé, Jairzinho et Rivelino : la plus belle équipe de l'histoire.
-Argentine|1986|Le Coq Sportif|#75aadb|#ffffff|rayures|Le maillot de Maradona au Mexique, main de Dieu comprise.
-Italie|1990|Diadora|#1b4fa0|#ffffff|uni|L'azzurro de Schillaci pendant les « notti magiche ».
-Danemark|1986|Hummel|#d0021b|#ffffff|rayures|Les fines rayures du Danish Dynamite au Mexique.
-Mexique|1998|ABA Sport|#1b8a3c|#ffffff|uni|Le calendrier aztèque imprimé sur tout le torse.
-Croatie|1998|Lotto|#e11d2e|#ffffff|damier|Le damier de Šuker, troisième du Mondial pour une première participation.
-Cameroun|2002|Puma|#1b8a3c|#f9d548|manches|Le maillot sans manches que la FIFA a fini par interdire.
-Jamaïque|1998|Kappa|#f9d548|#1b1b1b|manches|Les Reggae Boyz à leur premier Mondial, dans un jaune éclatant.
-Ajax Amsterdam|1995|Umbro|#ffffff|#d0021b|bandev|La bande rouge de la génération Kluivert, Seedorf et Davids, vainqueurs de la C1.
-Manchester United|1999|Umbro|#d0021b|#ffffff|uni|Le maillot du triplé et des arrêts de jeu du Camp Nou.
-FC Barcelone|1992|Meyba|#1b3a8a|#a50044|rayures|La Dream Team de Cruyff, première Coupe des clubs champions à Wembley.
-Juventus|1996|Kappa|#000000|#ffffff|rayures|Les rayures Kappa de Del Piero et du sacre européen de Rome.
-Arsenal|2005|Nike|#7a1f1f|#c9a227|uni|Le bordeaux « redcurrant » des adieux à Highbury.
-Olympique de Marseille|1993|Adidas|#ffffff|#1fa0d6|uni|« À jamais les premiers » : Munich, Boli, 26 mai 1993.
-Inter Milan|1998|Umbro|#1b3a8a|#000000|rayures|Les rayures de Ronaldo le Fenomeno et de la Coupe UEFA 1998.
-AC Milan|1990|Adidas|#d0021b|#000000|rayures|Le Milan de Sacchi : Gullit, Van Basten et Rijkaard.
-Celtic|1988|Umbro|#1b8a3c|#ffffff|cerceaux|Les cerceaux du centenaire du club, saison du doublé.
-Boca Juniors|1981|Adidas|#1b3a8a|#f9d548|bande|La bande or de la Bombonera, l'année des débuts de Maradona.
-Fiorentina|1998|Fila|#5a2d91|#ffffff|uni|Le violet de Batistuta, sponsor Nintendo compris.
-Borussia Dortmund|1997|Nike|#f9d548|#000000|uni|Le jaune du sacre en Ligue des champions face à la Juventus.
+France|1998|Adidas||#1b3a8a|#ffffff|bande|La bande rouge et blanche du 12 juillet 1998.|Finale de la Coupe du monde de football 1998;Équipe de France de football en 1998;Zinédine Zidane
+France|2018|Nike||#1b3a8a|#ffffff|uni|La deuxième étoile, Moscou, 15 juillet 2018.|Finale de la Coupe du monde de football 2018;Kylian Mbappé
+Real Madrid|2016-2017|Adidas|Cristiano Ronaldo|#ffffff|#1b3a8a|uni|Le blanc du doublé Liga – Ligue des champions, 42 buts de CR7.|Cristiano Ronaldo;Finale de la Ligue des champions de l'UEFA 2016-2017
+Manchester United|2007-2008|Nike|Cristiano Ronaldo|#c8102e|#000000|uni|Le n° 7 de Moscou : Ballon d'Or et Ligue des champions la même année.|Finale de la Ligue des champions de l'UEFA 2007-2008;Cristiano Ronaldo
+Portugal|2016|Nike|Cristiano Ronaldo|#c8102e|#1b8a3c|uni|Le sacre de l'Euro 2016 au Stade de France, Ronaldo en coach de touche.|Finale du Championnat d'Europe de football 2016;Cristiano Ronaldo
+Juventus|2018-2019|Adidas|Cristiano Ronaldo|#000000|#ffffff|moitie|La première saison turinoise de CR7, moitié noire, moitié blanche.|Cristiano Ronaldo;Juventus Football Club
+Argentine|2022|Adidas|Lionel Messi|#75aadb|#ffffff|rayures|La troisième étoile, la nuit de Lusail et Messi enfin champion du monde.|Finale de la Coupe du monde de football 2022;Lionel Messi
+FC Barcelone|2010-2011|Nike|Lionel Messi|#1b3a8a|#a50044|rayures|Le Barça de Guardiola à Wembley, sommet du tiki-taka.|Finale de la Ligue des champions de l'UEFA 2010-2011;Lionel Messi
+Paris Saint-Germain|2021-2022|Nike|Lionel Messi|#1b3a8a|#c8102e|bandev|Messi, Neymar et Mbappé réunis sous le même maillot.|Lionel Messi;Paris Saint-Germain Football Club
+Brésil|2002|Nike|Ronaldo|#f9d548|#1b8a3c|uni|Le penta, les huit buts de Ronaldo et sa coupe de cheveux.|Finale de la Coupe du monde de football 2002;Ronaldo (football, 1976)
+Inter Milan|1997-1998|Umbro|Ronaldo|#1b3a8a|#000000|rayures|Les rayures du Fenomeno et la Coupe UEFA 1998.|Ronaldo (football, 1976);Inter Milan
+Real Madrid|2001-2002|Adidas|Zinédine Zidane|#ffffff|#1b3a8a|uni|La volée de Glasgow, la neuvième Coupe d'Europe.|Finale de la Ligue des champions de l'UEFA 2001-2002;Zinédine Zidane
+Angleterre|1966|Umbro||#c8102e|#ffffff|uni|Le maillot rouge de Wembley, l'unique étoile anglaise.|Finale de la Coupe du monde de football 1966;Bobby Moore
+Nigeria|2018|Nike||#1b8a3c|#ffffff|damier|Épuisé en quelques minutes à sa sortie, le maillot le plus désiré du Mondial 2018.|Nigeria à la Coupe du monde de football 2018;Équipe du Nigeria de football
+Pays-Bas|1988|Adidas|Marco van Basten|#f26a1b|#ffffff|cerceaux|Le motif géométrique porté par Van Basten pour le sacre de l'Euro 88.|Championnat d'Europe de football 1988;Marco van Basten
+Allemagne|1990|Adidas|Lothar Matthäus|#ffffff|#1a1a1a|bande|Les trois traits noir, rouge et or de la nuit de Rome.|Finale de la Coupe du monde de football 1990;Lothar Matthäus
+Brésil|1970|Athleta|Pelé|#f9d548|#1b8a3c|uni|Le jaune de Pelé, Jairzinho et Rivelino : la plus belle équipe de l'histoire.|Finale de la Coupe du monde de football 1970;Pelé
+Argentine|1986|Le Coq Sportif|Diego Maradona|#75aadb|#ffffff|rayures|Le maillot de Maradona au Mexique, main de Dieu comprise.|Diego Maradona;Finale de la Coupe du monde de football 1986
+Italie|1990|Diadora|Salvatore Schillaci|#1b4fa0|#ffffff|uni|L'azzurro de Schillaci pendant les « notti magiche ».|Salvatore Schillaci;Coupe du monde de football 1990
+Danemark|1986|Hummel|Michael Laudrup|#d0021b|#ffffff|rayures|Les fines rayures du Danish Dynamite au Mexique.|Michael Laudrup;Équipe du Danemark de football
+Mexique|1998|ABA Sport|Jorge Campos|#1b8a3c|#ffffff|uni|Le calendrier aztèque imprimé sur tout le torse.|Jorge Campos;Équipe du Mexique de football
+Croatie|1998|Lotto|Davor Šuker|#e11d2e|#ffffff|damier|Le damier de Šuker, troisième du Mondial pour une première participation.|Davor Šuker;Équipe de Croatie de football
+Cameroun|2002|Puma|Samuel Eto'o|#1b8a3c|#f9d548|manches|Le maillot sans manches que la FIFA a fini par interdire.|Samuel Eto'o;Équipe du Cameroun de football
+Jamaïque|1998|Kappa||#f9d548|#1b1b1b|manches|Les Reggae Boyz à leur premier Mondial, dans un jaune éclatant.|Équipe de Jamaïque de football
+Ajax Amsterdam|1994-1995|Umbro|Patrick Kluivert|#ffffff|#d0021b|bandev|La bande rouge de la génération Kluivert, Seedorf et Davids, vainqueurs de la C1.|Finale de la Ligue des champions de l'UEFA 1994-1995;Patrick Kluivert
+Manchester United|1998-1999|Umbro|David Beckham|#d0021b|#ffffff|uni|Le maillot du triplé et des arrêts de jeu du Camp Nou.|Finale de la Ligue des champions de l'UEFA 1998-1999;David Beckham
+FC Barcelone|1991-1992|Meyba|Johan Cruyff|#1b3a8a|#a50044|rayures|La Dream Team de Cruyff, première Coupe des clubs champions à Wembley.|Johan Cruyff;FC Barcelone (football)
+Juventus|1995-1996|Kappa|Alessandro Del Piero|#000000|#ffffff|rayures|Les rayures Kappa de Del Piero et du sacre européen de Rome.|Alessandro Del Piero;Juventus Football Club
+Arsenal|2005-2006|Nike|Thierry Henry|#7a1f1f|#c9a227|uni|Le bordeaux « redcurrant » des adieux à Highbury.|Thierry Henry;Highbury
+Olympique de Marseille|1992-1993|Adidas|Basile Boli|#ffffff|#1fa0d6|uni|« À jamais les premiers » : Munich, Boli, 26 mai 1993.|Finale de la Ligue des champions de l'UEFA 1992-1993;Basile Boli;Olympique de Marseille
+AC Milan|1989-1990|Adidas|Marco van Basten|#d0021b|#000000|rayures|Le Milan de Sacchi : Gullit, Van Basten et Rijkaard.|Ruud Gullit;AC Milan
+Celtic|1987-1988|Umbro||#1b8a3c|#ffffff|cerceaux|Les cerceaux du centenaire du club, saison du doublé.|Celtic Football Club
+Boca Juniors|1981|Adidas|Diego Maradona|#1b3a8a|#f9d548|bande|La bande or de la Bombonera, l'année des débuts de Maradona.|Diego Maradona;Boca Juniors
+Fiorentina|1998-1999|Fila|Gabriel Batistuta|#5a2d91|#ffffff|uni|Le violet de Batistuta, sponsor Nintendo compris.|Gabriel Batistuta;ACF Fiorentina
+Borussia Dortmund|1996-1997|Nike||#f9d548|#000000|uni|Le jaune du sacre en Ligue des champions face à la Juventus.|Finale de la Ligue des champions de l'UEFA 1996-1997;Borussia Dortmund
 `;
 
 const lignes=t=>t.split('\n').map(l=>l.trim()).filter(Boolean);
 const SELECTIONS=lignes(SELECTIONS_BRUT).map(l=>{const p=l.split('|');const iso=p[1]||'';let c1=null,c2=null;if(iso.startsWith('#')){[c1,c2]=iso.split('/')}return{nom:p[0],type:'selection',iso:iso.startsWith('#')?null:iso,c1,c2,motif:'uni',alias:(p[2]||'').split(',').map(s=>s.trim()).filter(Boolean)}});
 const CLUBS=lignes(CLUBS_BRUT).map(l=>{const p=l.split('|');return{nom:p[0],type:'club',pays:p[1],c1:p[2],c2:p[3],motif:p[4]||'uni',alias:(p[5]||'').split(',').map(s=>s.trim()).filter(Boolean)}});
-const CLASSIQUES=lignes(CLASSIQUES_BRUT).map(l=>{const p=l.split('|');return{equipe:p[0],saison:p[1],marque:p[2],c1:p[3],c2:p[4],motif:p[5],citation:p[6],force:true}});
+const CLASSIQUES=lignes(CLASSIQUES_BRUT).map(l=>{const p=l.split('|');return{equipe:p[0],saison:p[1],marque:p[2],joueur:p[3]||'',c1:p[4],c2:p[5],motif:p[6],citation:p[7],wiki:(p[8]||'').split(';').map(s=>s.trim()).filter(Boolean),force:true}});
 const EQUIPES=[...SELECTIONS,...CLUBS];
 const INDEX=new Map();EQUIPES.forEach(e=>{INDEX.set(norm(e.nom),e);e.alias.forEach(a=>{if(!INDEX.has(norm(a)))INDEX.set(norm(a),e)})});
 function trouverEquipe(nom){if(!nom)return null;const n=norm(nom);if(INDEX.has(n))return INDEX.get(n);const nn=' '+n+' ';for(const [k,e] of INDEX){if(k.length>=4&&nn.includes(' '+k+' '))return e}if(n.length>=5){for(const [k,e] of INDEX){if(k.includes(n))return e}}return null}
@@ -723,13 +734,20 @@ function svgMaillot(c1,c2,motif,o={}){const id='m'+(++svgN);c1=c1||'#1d3b2f';c2=
  const texte=o.texte?`<text x="50" y="74" text-anchor="middle" font-family="Georgia,serif" font-size="${o.taille||15}" font-weight="700" fill="${contraste(c1)}" opacity=".85">${esc(o.texte)}</text>`:'';
  return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><defs><clipPath id="${id}"><path d="${corps}"/></clipPath></defs><g clip-path="url(#${id})"><rect width="100" height="100" fill="${c1}"/>${deco}</g><path d="${corps}" fill="none" stroke="rgba(0,0,0,.2)" stroke-width="1.5"/><path d="M41 9 Q50 17 59 9" fill="none" stroke="${c2}" stroke-width="3"/>${texte}</svg>`}
 function couleurDepuisNom(n){const pal=['#1d3b2f','#1b3a8a','#c8102e','#7a1f1f','#5a2d91','#f26a1b','#6cabdd','#1b8a3c'];return pal[hash(norm(n))%pal.length]}
-/* Image liée à l'équipe : drapeau (sélection), maillot aux couleurs du club, ou maillot culte reproduit */
-function visuelEquipe(nom,o={}){const e=trouverEquipe(nom);
- if(e&&e.type==='selection'&&e.iso&&!o.force)return `<img class="visu-drapeau" src="https://flagcdn.com/w320/${e.iso}.png" alt="${esc(e.nom)}" loading="lazy">`;
- const c1=(o.force&&o.c1)||(e&&e.c1)||o.c1||couleurDepuisNom(nom||'x');
- const c2=(o.force&&o.c2)||(e&&e.c2)||o.c2||(String(c1).toLowerCase()==='#ffffff'?'#1d3b2f':'#ffffff');
- const motif=(o.force&&o.motif)||(e&&e.motif)||o.motif||'uni';
- return `<div class="visu-maillot">${svgMaillot(c1,c2,motif,{texte:o.texte||''})}</div>`}
+
+/* Photos Wikipédia (libres, sans quota) : cache local, 1 seule requête par titre */
+const WIKI=lire(K.wiki,{});const wikiEnCours=new Map();
+function imageWiki(titre){if(titre in WIKI)return Promise.resolve(WIKI[titre]);if(wikiEnCours.has(titre))return wikiEnCours.get(titre);
+ const p=(async()=>{try{const r=await fetch('https://fr.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(titre.replace(/ /g,'_')));if(r.status===404){WIKI[titre]=null;ecrire(K.wiki,WIKI);return null}if(!r.ok)return null;const j=await r.json();let src=(j.thumbnail||{}).source||null;if(src)src=src.replace(/\/(\d+)px-/,'/640px-');WIKI[titre]=src;ecrire(K.wiki,WIKI);return src}catch(e){return null}finally{wikiEnCours.delete(titre)}})();wikiEnCours.set(titre,p);return p}
+async function premiereImage(titres){for(const t of titres){const s=await imageWiki(t);if(s)return s}return null}
+function chargerWiki(){$$('.visu[data-wiki]').forEach(async el=>{const titres=el.dataset.wiki.split(';;').filter(Boolean);el.removeAttribute('data-wiki');const src=await premiereImage(titres);if(!src||!el.isConnected)return;const img=new Image();img.alt='';img.loading='lazy';img.onload=()=>{const r=img.naturalWidth/img.naturalHeight;img.className='visu-img'+(r>0.75&&r<1.35?' logo':'');el.innerHTML='';el.appendChild(img)};img.src=src})}
+/* Image liée à l'équipe : lien perso > photo Wikipédia (joueur/finale/écusson) > drapeau > maillot dessiné aux couleurs */
+function visuelEquipe(nom,o={}){const e=trouverEquipe(nom);let titres=o.wiki||[];
+ if(!titres.length&&e&&e.type==='club'&&o.web!==false)titres=[e.nom,...e.alias.slice(0,2)];
+ let fond;if(e&&e.type==='selection'&&e.iso&&!o.force)fond=`<img class="visu-drapeau" src="https://flagcdn.com/w320/${e.iso}.png" alt="${esc(e.nom)}" loading="lazy">`;
+ else{const c1=(o.force&&o.c1)||(e&&e.c1)||o.c1||couleurDepuisNom(nom||'x');const c2=(o.force&&o.c2)||(e&&e.c2)||o.c2||(String(c1).toLowerCase()==='#ffffff'?'#1d3b2f':'#ffffff');const motif=(o.force&&o.motif)||(e&&e.motif)||o.motif||'uni';fond=`<div class="visu-maillot">${svgMaillot(c1,c2,motif,{texte:o.texte||''})}</div>`}
+ if(o.url)return `<div class="visu"><img class="visu-img" src="${esc(o.url)}" alt="" loading="lazy" onerror="this.remove()">${fond}</div>`;
+ return `<div class="visu"${titres.length?` data-wiki="${esc(titres.join(';;'))}"`:''}>${fond}</div>`}
 
 /* ===================== ÉTAT & STOCKAGE ===================== */
 let collection=lire(K.col,[]),wishlist=lire(K.wish,[]),params=Object.assign({relais:'',code:'',prenom:'',dernierExport:0,ebay:false,veille:true},lire(K.params,{}));
@@ -753,7 +771,7 @@ async function migrer(){let ch=false;
   if(m.photo){m.photos.unshift(m.photo);delete m.photo;ch=true}
   for(let i=0;i<m.photos.length;i++){if(String(m.photos[i]).startsWith('data:')){m.photos[i]=await PHOTOS.put(m.photos[i]);ch=true}}
   if(!m.version){m.version='Replica';ch=true}if(!m.type){m.type=(trouverEquipe(m.equipe)||{}).type||'club';ch=true}}
- for(const w of wishlist){if(!w.statut){w.statut='suivi';ch=true}if(w.alerte==null){w.alerte=true;ch=true}if(!w.version){w.version='Replica';ch=true}}
+ for(const w of wishlist){if(!w.statut){w.statut='suivi';ch=true}if(w.alerte==null){w.alerte=true;ch=true}if(!w.version){w.version='Replica';ch=true}if(w.imageUrl==null){w.imageUrl='';ch=true}}
  if(ch)sauver()}
 
 /* ===================== RELAIS, QUOTA, PRIX ===================== */
@@ -829,6 +847,7 @@ function suggestions(){const possede=new Set(collection.map(m=>norm(m.equipe)+'|
  const push=(s,groupe)=>{const k=norm(s.equipe)+'|'+norm(s.saison||'');if(possede.has(k)||souhaits.has(k))return;if(!s.saison&&equipesPossedees.has(norm(s.equipe)))return;if(out.some(o=>norm(o.equipe)+'|'+norm(o.saison||'')===k))return;out.push({...s,groupe})};
  for(const m of collection){const e=trouverEquipe(m.equipe);
   CLASSIQUES.filter(c=>norm(c.equipe)===norm(m.equipe)).forEach(c=>push({...c,raison:`Parce que tu as déjà ${m.equipe}`},0));
+  if(m.joueur&&norm(m.joueur).length>=3){const nomJ=norm(m.joueur).split(' ').pop();CLASSIQUES.filter(c=>c.joueur&&norm(c.joueur).includes(nomJ)).forEach(c=>push({...c,raison:`Parce que tu as un maillot de ${m.joueur}`},0))}
   if(e&&e.type==='club'){const sel=SELECTIONS.find(s=>norm(s.nom)===norm(e.pays));if(sel)push({equipe:sel.nom,saison:'',marque:'',citation:'La sélection, pour accompagner le club.',raison:`Le pays de ${e.nom}`},0);
    CLUBS.filter(c=>c.pays===e.pays&&c.nom!==e.nom&&!equipesPossedees.has(norm(c.nom))).slice(0,3).forEach(c=>push({equipe:c.nom,saison:'',marque:'',citation:'Un rival historique pour compléter la série.',raison:`Même championnat que ${e.nom}`},0))}
   if(e&&e.type==='selection')CLASSIQUES.filter(c=>(trouverEquipe(c.equipe)||{}).type==='selection').slice(0,4).forEach(c=>push({...c,raison:'Tu aimes les sélections'},0));
@@ -859,7 +878,7 @@ function carteMaillot(m){const img=m.photos&&m.photos[0]?`<img data-ph="${esc(m.
  <div class="corps"><h3>${esc(m.equipe||'Maillot')}</h3><div class="meta">${[m.saison,m.marque,m.categorie,m.couleur].filter(Boolean).map(esc).join(' · ')||'—'}</div>
  <div class="bas"><span class="chip">${esc(m.etat||'État non renseigné')}</span><b>${euros(m.valeur!=null&&m.valeur!==''?m.valeur:m.prixAchat)}</b></div></div></article>`}
 function filtrer(){const q=norm(etat.recherche);return collection.filter(m=>{for(const k in etat.filtres){if(etat.filtres[k]&&String(m[k]||'').trim()!==etat.filtres[k])return false}if(!q)return true;return norm([m.equipe,m.marque,m.sponsor,m.joueur,m.saison,m.notes,m.couleur,m.version,m.categorie].join(' ')).includes(q)}).sort((a,b)=>(b.favori?1:0)-(a.favori?1:0)||(b.date||0)-(a.date||0))}
-function listeCollection(){if(!collection.length)return `<div class="vide">${visuelEquipe('',{c1:'#1d3b2f',c2:'#d9ea8a',motif:'manches',texte:'1'})}<h3>Ta collection est vide</h3><p>Ajoute ton premier maillot : une photo suffit, Google Lens t'aide à l'identifier.</p><button class="btn btn-vert" data-a="ajouter">${I('plus')} Ajouter un maillot</button></div>`;
+function listeCollection(){if(!collection.length)return `<div class="vide">${visuelEquipe('',{c1:'#143d2f',c2:'#c6e36b',motif:'manches',texte:'1',web:false})}<h3>Ta collection est vide</h3><p>Ajoute ton premier maillot : une photo suffit, Google Lens t'aide à l'identifier.</p><button class="btn btn-vert" data-a="ajouter">${I('plus')} Ajouter un maillot</button></div>`;
  const l=filtrer();return `<div class="compte">${l.length} maillot${l.length>1?'s':''}</div>${l.length?`<div class="grille">${l.map(carteMaillot).join('')}</div>`:'<div class="vide">Aucun maillot ne correspond à cette recherche.</div>'}`}
 function pageCollection(){const n=collection.length;const investi=collection.reduce((s,m)=>s+(+m.prixAchat||0),0);const valeur=collection.reduce((s,m)=>s+(m.valeur!=null&&m.valeur!==''?+m.valeur:(+m.prixAchat||0)),0);const pv=valeur-investi;
  const distinct=f=>[...new Set(collection.map(m=>String(m[f]||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
@@ -879,7 +898,8 @@ function carteWish(w){const meta=[w.version||'Replica',w.marque,w.couleur,w.tail
  const actions=w.statut==='suivi'?`<button class="btn" data-a="wish-modifier" data-id="${w.id}">${I('edit')} Modifier</button><button class="btn btn-vert" data-a="wish-trouve" data-id="${w.id}">${I('bag')} Je l'ai trouvé</button><button class="btn btn-ic" data-a="verifier-un" data-id="${w.id}" title="Vérifier ce maillot maintenant">${I('refresh')}</button>`
   :w.statut==='trouve'?`<button class="btn btn-vert" data-a="wish-vers-collection" data-id="${w.id}">${I('plus')} Ajouter à la collection</button><button class="btn" data-a="wish-reprendre" data-id="${w.id}">${I('refresh')} Reprendre le suivi</button>`
   :`<button class="btn" data-a="wish-reprendre" data-id="${w.id}">${I('refresh')} Reprendre le suivi</button><button class="btn" data-a="wish-modifier" data-id="${w.id}">${I('edit')} Modifier</button>`;
- return `<article class="wcarte"><div class="wtete"><div class="wvisu">${visuelEquipe(w.equipe,{texte:saisonCourte(w.saison),c1:couleurHex(w.couleur)})}</div><div><h3>${esc(w.equipe)}</h3><div class="meta">${esc(w.saison||'Saison non précisée')}</div><div class="meta">${meta}</div></div>
+ const classique=CLASSIQUES.find(c=>norm(c.equipe)===norm(w.equipe)&&c.saison&&norm(w.saison).includes(norm(c.saison).slice(0,4)));
+ return `<article class="wcarte"><div class="wtete"><div class="wvisu">${visuelEquipe(w.equipe,{url:w.imageUrl,wiki:classique?classique.wiki:undefined,texte:saisonCourte(w.saison),c1:couleurHex(w.couleur)})}</div><div><h3>${esc(w.equipe)}</h3><div class="meta">${esc(w.saison||'Saison non précisée')}</div><div class="meta">${meta}</div></div>
  <button class="wbell ${w.alerte?'':'off'}" data-a="wish-alerte" data-id="${w.id}" title="${w.alerte?'Désactiver l\'alerte':'Activer l\'alerte'}">${I('bell')}</button></div>
  ${w.statut!=='suivi'?`<div style="margin-top:10px"><span class="chip">${w.statut==='trouve'?'Trouvé':'Abandonné'}</span></div>`:''}
  <div class="wsep"></div><div class="wprix"><div><div class="lab">Budget</div><div class="val">${euros(w.budget)}</div></div><div><div class="lab">Prix de référence</div><div class="val">${w.prixRef==null?'<span class="arelever">à relever</span>':euros(w.prixRef)}</div></div><div><div class="lab">Dernier prix</div><div class="val">${euros(w.dernierPrix)}</div></div></div>
@@ -894,11 +914,11 @@ function pageWishlist(){const statuts=[['suivi','Suivis'],['trouve','Trouvés'],
  <div class="compte">${l.length} maillot${l.length>1?'s':''} · ${mot}</div>
  ${l.length?`<div class="wgrille">${l.map(carteWish).join('')}</div>`:`<div class="vide"><h3>Rien ici pour le moment</h3><p>Ajoute une envie : l'appli relèvera ses prix sur les annonces entre particuliers.</p><button class="btn btn-vert" data-a="ajouter-wish">${I('plus')} Ajouter une envie</button></div>`}`}
 
-function carteSugg(s,i){const e=trouverEquipe(s.equipe);return `<article class="carte sugg-carte"><div class="img">${visuelEquipe(s.equipe,{force:s.force,c1:s.c1,c2:s.c2,motif:s.motif,texte:saisonCourte(s.saison)})}${s.saison?`<span class="badge">${esc(s.saison)}</span>`:''}</div>
- <div class="corps"><h3>${esc(s.equipe)}</h3><div class="meta">${[s.saison,s.marque,e?(e.type==='club'?e.pays:'Sélection nationale'):''].filter(Boolean).map(esc).join(' · ')}</div>${s.citation?`<div class="cit">« ${esc(s.citation)} »</div>`:''}<div class="raison">${esc(s.raison)}</div>
+function carteSugg(s,i){const e=trouverEquipe(s.equipe);return `<article class="carte sugg-carte"><div class="img">${visuelEquipe(s.equipe,{force:s.force,c1:s.c1,c2:s.c2,motif:s.motif,wiki:s.wiki,texte:saisonCourte(s.saison)})}${s.saison?`<span class="badge">${esc(s.saison)}</span>`:''}</div>
+ <div class="corps"><h3>${esc(s.equipe)}${s.joueur?` <small>· ${esc(s.joueur)}</small>`:''}</h3><div class="meta">${[s.saison,s.marque,e?(e.type==='club'?e.pays:'Sélection nationale'):''].filter(Boolean).map(esc).join(' · ')}</div>${s.citation?`<div class="cit">« ${esc(s.citation)} »</div>`:''}<div class="raison">${esc(s.raison)}</div>
  <div class="wactions"><button class="btn" data-a="sugg-wish" data-i="${i}">${I('heart')} Wishlist</button><button class="btn btn-vert" data-a="sugg-col" data-i="${i}">${I('plus')} Je l'ai</button></div></div></article>`}
 function pageAccueil(){const sugg=suggestions().slice(0,6);etat.suggCache=sugg;const suivis=wishlist.filter(w=>w.statut==='suivi');const derniers=[...collection].sort((a,b)=>(b.date||0)-(a.date||0)).slice(0,4);const salut=new Date().getHours()<18?'Bonjour':'Bonsoir';
- return `<div class="hero"><div class="eyebrow" style="color:var(--lime)">${salut}${params.prenom?' '+esc(params.prenom):''}</div><h1>Des maillots qui pourraient vous plaire</h1><p>Des idées calculées à partir de votre collection : mêmes clubs, mêmes pays, mêmes équipementiers et quelques classiques incontournables. Sans intelligence artificielle, sans publicité.</p>
+ return `<div class="hero"><div class="eyebrow" style="color:var(--lime)">${salut}${params.prenom?' '+esc(params.prenom):''}</div><h1>Des maillots qui pourraient vous plaire</h1><p>Des idées calculées à partir de votre collection : mêmes clubs, mêmes pays, mêmes joueurs, mêmes équipementiers et quelques classiques incontournables. Sans intelligence artificielle, sans publicité.</p>
  <div class="stats"><span>${collection.length} maillot${collection.length>1?'s':''} en collection</span><span>${suivis.length} souhait${suivis.length>1?'s':''} surveillé${suivis.length>1?'s':''}</span><span>${sugg.length} idées du moment</span></div><div class="deco">${svgMaillot('#ffffff','#ffffff','uni')}</div></div>
  <div class="section"><h2>Suggestions pour vous</h2><button class="btn" data-a="idees">${I('refresh')} Nouvelles idées</button></div><div class="sugg">${sugg.map(carteSugg).join('')}</div>
  ${derniers.length?`<div class="section"><h2>Derniers ajouts</h2><button class="btn" data-a="page" data-p="collection">Voir la collection</button></div><div class="grille">${derniers.map(carteMaillot).join('')}</div>`:''}
@@ -910,9 +930,9 @@ function pageParametres(){const q=quota();const pct=Math.min(100,Math.round(q.ut
  <div class="carte-param"><h2>Relais Cloudflare</h2><div class="form"><label class="plein">Adresse du relais<input name="relais" value="${esc(params.relais)}" placeholder="https://maillots-relais.xxxx.workers.dev"></label><label class="plein">Code secret<input name="code" type="password" value="${esc(params.code)}" placeholder="Le CODE_SECRET du Worker"></label>
  <label class="coche plein"><input type="checkbox" name="ebay" ${params.ebay?'checked':''}> Interroger aussi eBay lors des relevés (facultatif, si configuré sur le relais)</label><label class="coche plein"><input type="checkbox" name="veille" ${params.veille!==false?'checked':''}> Veille automatique : un relevé par jour à l'ouverture (6 maillots maximum)</label></div>
  <div class="wactions"><button class="btn btn-vert" data-a="sauver-params">${I('check')} Enregistrer</button><button class="btn" data-a="tester">${I('refresh')} Tester la connexion</button></div><div id="res-test"></div></div>
- <div class="carte-param"><h2>Quota SerpApi</h2><div class="aide" style="margin:0">${q.utilise} / ${QUOTA_MAX} recherches utilisées en ${q.mois} (compteur local, approximatif). Les réponses déjà en cache sur le relais ne comptent pas.</div><div class="quota"><i style="width:${pct}%"></i></div></div>
+ <div class="carte-param"><h2>Quota SerpApi</h2><div class="aide" style="margin:0">${q.utilise} / ${QUOTA_MAX} recherches utilisées en ${q.mois} (compteur local, approximatif). Les réponses déjà en cache sur le relais et les photos Wikipédia ne comptent pas.</div><div class="quota"><i style="width:${pct}%"></i></div></div>
  <div class="carte-param"><h2>Sauvegarde</h2><div class="aide" style="margin:0 0 12px">L'export contient la collection, la wishlist et les photos (sans le code secret). Dernier export : ${params.dernierExport?dateFr(params.dernierExport):'jamais'}.</div><div class="wactions"><button class="btn btn-vert" data-a="exporter">${I('download')} Exporter</button><label class="btn">${I('upload')} Importer<input type="file" id="fichier-import" accept="application/json,.json" hidden></label></div></div>
- <div class="carte-param"><h2>Application</h2><div class="aide" style="margin:0 0 12px">Mes Maillots v${VERSION} · ${collection.length} maillots · ${wishlist.length} souhaits · ${EQUIPES.length} équipes et ${CLASSIQUES.length} maillots cultes dans le dictionnaire.</div><div class="wactions"><button class="btn" data-a="maj">${I('refresh')} Forcer la mise à jour de l'appli</button></div></div>`}
+ <div class="carte-param"><h2>Application</h2><div class="aide" style="margin:0 0 12px">Mes Maillots v${VERSION} · ${collection.length} maillots · ${wishlist.length} souhaits · ${EQUIPES.length} équipes et ${CLASSIQUES.length} maillots cultes dans le dictionnaire.</div><div class="wactions"><button class="btn" data-a="maj">${I('refresh')} Forcer la mise à jour de l'appli</button><button class="btn" data-a="vider-wiki">${I('trash')} Vider le cache des images web</button></div></div>`}
 
 /* ---- fiche, formulaires ---- */
 function ficheMaillot(m){const e=trouverEquipe(m.equipe);const ph=m.photos||[];if(etat.carrousel>=ph.length)etat.carrousel=0;
@@ -929,7 +949,7 @@ const opts=(liste,v)=>liste.map(o=>`<option ${o===v?'selected':''}>${esc(o)}</op
 function formMaillot(){const f=etat.form;
  return `<div class="modal"><button class="btn btn-ic fermer" data-a="fermer">${I('x')}</button><div class="eyebrow">${f.id?'Modifier':'Nouveau maillot'}</div><h2>${f.id?esc(f.equipe):'Ajouter un maillot'}</h2>
  <div class="photos-edit">${f.photos.map((p,i)=>`<div class="ph"><img ${p.data?`src="${p.data}"`:`data-ph="${esc(p.id)}"`} alt=""><button type="button" class="x" data-a="photo-suppr" data-i="${i}">${I('x')}</button></div>`).join('')}${f.photos.length<4?`<label class="ph" title="Ajouter une photo">${I('camera')}<span>Photo</span><input type="file" accept="image/*" id="fichier-photo" hidden multiple></label>`:''}</div>
- <div class="wactions" style="align-items:center"><button type="button" class="btn" data-a="lens" ${f.photos.length?'':'disabled'}>${I('lens')} Identifier avec Google Lens</button><span class="aide" style="margin:0">1 recherche SerpApi · résultat gardé 7 jours</span></div>
+ <div class="wactions" style="align-items:center;margin-top:0"><button type="button" class="btn" data-a="lens" ${f.photos.length?'':'disabled'}>${I('lens')} Identifier avec Google Lens</button><span class="aide" style="margin:0">1 recherche SerpApi · résultat gardé 7 jours</span></div>
  <div id="lens-res">${etat.lensHtml||''}</div>
  <form id="f-maillot" class="form" onsubmit="return false">
   <label>Type<select name="type">${opts(['Club','Sélection'],f.type==='selection'?'Sélection':'Club')}</select></label>
@@ -962,6 +982,7 @@ function formWish(){const f=etat.form;
   <label>Couleur<select name="couleur"><option value="">—</option>${opts(COULEURS.map(c=>c[0]),f.couleur)}</select></label>
   <label>Taille<select name="taille"><option value="">—</option>${opts(TAILLES,f.taille)}</select></label>
   <label>Budget maximum (€)<input name="budget" type="number" min="0" step="1" value="${esc(f.budget)}" placeholder="130"></label>
+  <label class="plein">Lien d'une image (facultatif)<input name="imageUrl" type="url" value="${esc(f.imageUrl)}" placeholder="https://… (clic droit sur une photo du web → Copier l'adresse de l'image)"></label>
   ${f.id?`<label>Statut<select name="statut">${[['suivi','Suivi'],['trouve','Trouvé'],['abandonne','Abandonné']].map(([v,n])=>`<option value="${v}" ${f.statut===v?'selected':''}>${n}</option>`).join('')}</select></label>`:''}
   <label class="plein">Notes<textarea name="notes" placeholder="Taille recherchée, détails…">${esc(f.notes)}</textarea></label>
   <label class="coche plein"><input type="checkbox" name="alerte" ${f.alerte!==false?'checked':''}> M'alerter quand une annonce fiable passe sous le budget</label>
@@ -973,7 +994,7 @@ function panneauNotifs(){const n=notifications();const lus=lire(K.notifs,[]);
 
 function rendre(){const pages={accueil:pageAccueil,collection:pageCollection,wishlist:pageWishlist,parametres:pageParametres};
  root.innerHTML=entete()+`<main>${(pages[etat.page]||pageAccueil)()}</main>`+barre()+(etat.panneau?panneauNotifs():'')+`<div id="modal">${etat.modal?`<div class="voile">${etat.modal()}</div>`:''}</div>`;
- document.body.style.overflow=etat.modal?'hidden':'';chargerPhotos()}
+ document.body.style.overflow=etat.modal?'hidden':'';chargerPhotos();chargerWiki()}
 function chargerPhotos(){$$('img[data-ph]').forEach(async img=>{const id=img.dataset.ph;img.removeAttribute('data-ph');const d=await PHOTOS.get(id);if(d)img.src=d;else img.style.display='none'})}
 let toastT;function toast(msg,fixe){let t=$('#toast');if(!t){t=document.createElement('div');t.id='toast';t.className='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(toastT);if(!fixe)toastT=setTimeout(()=>t.style.display='none',3500)}
 function fermerModal(){etat.modal=null;etat.form=null;etat.lens=null;etat.lensHtml='';rendre()}
@@ -982,7 +1003,7 @@ function synchroForm(){const f=$('#f-maillot')||$('#f-wish');if(!f||!etat.form)r
 function ouvrirFormMaillot(m={}){etat.lensHtml='';etat.lens=null;etat.panneau=false;
  etat.form={id:m.id||null,date:m.date||null,wishId:m.wishId||null,type:m.type||'club',equipe:m.equipe||'',saison:m.saison||'',marque:m.marque||'',version:m.version||'Replica',categorie:m.categorie||'',couleur:m.couleur||'',sponsor:m.sponsor||'',taille:m.taille||'',etat:m.etat||'',joueur:m.joueur||'',numero:m.numero||'',prixAchat:m.prixAchat??'',valeur:m.valeur??'',notes:m.notes||'',favori:!!m.favori,photos:(m.photos||[]).map(id=>({id})),similaires:m.similaires||[],photosSupprimees:[]};
  etat.modal=()=>formMaillot();rendre()}
-function ouvrirFormWish(w={}){etat.panneau=false;etat.form={id:w.id||null,type:w.type||'club',equipe:w.equipe||'',saison:w.saison||'',marque:w.marque||'',version:w.version||'Replica',couleur:w.couleur||'',taille:w.taille||'',budget:w.budget??'',alerte:w.alerte!==false,statut:w.statut||'suivi',notes:w.notes||''};etat.modal=()=>formWish();rendre()}
+function ouvrirFormWish(w={}){etat.panneau=false;etat.form={id:w.id||null,type:w.type||'club',equipe:w.equipe||'',saison:w.saison||'',marque:w.marque||'',version:w.version||'Replica',couleur:w.couleur||'',taille:w.taille||'',budget:w.budget??'',alerte:w.alerte!==false,statut:w.statut||'suivi',notes:w.notes||'',imageUrl:w.imageUrl||''};etat.modal=()=>formWish();rendre()}
 const depuisWish=w=>({equipe:w.equipe,type:w.type,saison:w.saison,marque:w.marque,version:w.version,couleur:w.couleur,taille:w.taille,prixAchat:w.meilleurPrix??w.dernierPrix??'',valeur:w.dernierPrix??'',wishId:w.id});
 async function enregistrerMaillot(){const v=lireForm('#f-maillot');if(!v.equipe){toast('Indique au moins l\'équipe.');return}const f=etat.form;const photos=[];
  for(const p of f.photos){if(p.id)photos.push(p.id);else if(p.data)photos.push(await PHOTOS.put(p.data))}for(const id of f.photosSupprimees||[])await PHOTOS.del(id);
@@ -991,7 +1012,7 @@ async function enregistrerMaillot(){const v=lireForm('#f-maillot');if(!v.equipe)
  if(f.wishId){const w=wishlist.find(x=>x.id===f.wishId);if(w&&w.statut!=='trouve'){w.statut='trouve';w.dateTrouve=Date.now()}}
  sauver();fermerModal();if(i<0)etat.page='collection';rendre();toast(i>=0?'Maillot modifié.':'Maillot ajouté à la collection.')}
 function enregistrerWish(){const v=lireForm('#f-wish');if(!v.equipe){toast('Indique au moins l\'équipe.');return}const f=etat.form;const old=wishlist.find(x=>x.id===f.id)||{};
- const w={...old,id:f.id||uid(),date:old.date||Date.now(),equipe:v.equipe,type:v.type==='Sélection'?'selection':'club',saison:v.saison,marque:v.marque,version:v.version,couleur:v.couleur,taille:v.taille,budget:v.budget===''?null:+v.budget,alerte:!!v.alerte,statut:v.statut||old.statut||'suivi',notes:v.notes};
+ const w={...old,id:f.id||uid(),date:old.date||Date.now(),equipe:v.equipe,type:v.type==='Sélection'?'selection':'club',saison:v.saison,marque:v.marque,version:v.version,couleur:v.couleur,taille:v.taille,budget:v.budget===''?null:+v.budget,alerte:!!v.alerte,statut:v.statut||old.statut||'suivi',notes:v.notes,imageUrl:v.imageUrl||''};
  const i=wishlist.findIndex(x=>x.id===w.id);if(i>=0)wishlist[i]=w;else wishlist.unshift(w);sauver();fermerModal();etat.page='wishlist';etat.statutWish=w.statut;rendre();toast(i>=0?'Envie modifiée.':'Envie ajoutée : lance « Vérifier les prix » quand tu veux.')}
 async function ajouterPhotos(files){synchroForm();for(const file of files){if(etat.form.photos.length>=4)break;try{etat.form.photos.push({data:await compresser(file,1200,0.85)})}catch(e){toast('Photo illisible.')}}rendre()}
 function sauverParams(afficher){const g=n=>$(`main [name="${n}"]`);if(!g('relais'))return;params.prenom=g('prenom').value.trim();params.relais=g('relais').value.trim();params.code=g('code').value.trim();params.ebay=g('ebay').checked;params.veille=g('veille').checked;sauver();if(afficher){toast('Paramètres enregistrés.');rendre()}}
@@ -1003,6 +1024,7 @@ async function importer(file){const d=JSON.parse(await file.text());if(!Array.is
  collection=d.collection;wishlist=d.wishlist||[];if(d.params)params={...params,...d.params,code:params.code||d.params.code||''};sauver();await migrer();rendre();toast('Import terminé.')}
 
 /* ===================== ÉVÉNEMENTS ===================== */
+let rechT;
 function brancher(){
  root.addEventListener('click',async ev=>{if(ev.target.classList.contains('voile')){fermerModal();return}const el=ev.target.closest('[data-a]');if(!el)return;const a=el.dataset.a,id=el.dataset.id;
   switch(a){
@@ -1017,53 +1039,105 @@ function brancher(){
    case 'estimer':{synchroForm();if(!etat.form.equipe){toast('Indique l\'équipe d\'abord.');return}const s=await estimation(etat.form);if(s){etat.form.valeur=s.mediane;rendre();toast(`Médiane ${euros(s.mediane)} sur ${s.nb} annonces (${s.ecartes} écartées).`)}break}
    case 'carrousel':{const n=((collection.find(x=>x.id===etat.ficheId)||{}).photos||[]).length;if(n){etat.carrousel=(etat.carrousel+(+el.dataset.d)+n)%n;rendre()}break}
    case 'wish-statut':etat.statutWish=el.dataset.s;rendre();break;
-      case 'wish-modifier':{const w=wishlist.find(x=>x.id===id);if(w)ouvrirFormWish(w);break}
-   case 'wish-trouve':{const w=wishlist.find(x=>x.id===id);if(w){w.statut='trouve';w.dateTrouve=Date.now();sauver();etat.statutWish='trouve';rendre();toast('Marqué comme trouvé.')}break}
+   case 'wish-modifier':{const w=wishlist.find(x=>x.id===id);if(w)ouvrirFormWish(w);break}
+   case 'wish-trouve':{const w=wishlist.find(x=>x.id===id);if(w){w.statut='trouve';w.dateTrouve=Date.now();sauver();etat.statutWish='trouve';rendre();if(confirm('Bravo ! Veux-tu l\'ajouter tout de suite à ta collection ?'))ouvrirFormMaillot(depuisWish(w))}break}
    case 'wish-vers-collection':{const w=wishlist.find(x=>x.id===id);if(w)ouvrirFormMaillot(depuisWish(w));break}
-   case 'wish-reprendre':{const w=wishlist.find(x=>x.id===id);if(w){w.statut='suivi';sauver();etat.statutWish='suivi';rendre();toast('Suivi repris.')}break}
-   case 'wish-alerte':{const w=wishlist.find(x=>x.id===id);if(w){w.alerte=!w.alerte;sauver();rendre()}break}
-   case 'wish-supprimer':{const w=wishlist.find(x=>x.id===id);if(w&&confirm(`Supprimer « ${w.equipe} » de la wishlist ?`)){wishlist=wishlist.filter(x=>x.id!==id);sauver();rendre();toast('Envie supprimée.')}break}
+   case 'wish-reprendre':{const w=wishlist.find(x=>x.id===id);if(w){w.statut='suivi';sauver();etat.statutWish='suivi';rendre()}break}
+   case 'wish-alerte':{const w=wishlist.find(x=>x.id===id);if(w){w.alerte=!w.alerte;sauver();rendre();toast(w.alerte?'Alerte activée.':'Alerte désactivée.')}break}
+   case 'wish-supprimer':{const w=wishlist.find(x=>x.id===id);if(w&&confirm(`Retirer « ${w.equipe} » de la wishlist ?`)){wishlist=wishlist.filter(x=>x.id!==id);sauver();rendre()}break}
    case 'verifier':await verifierPrix();break;
    case 'verifier-un':await verifierPrix([id]);break;
+   case 'sugg-wish':{const s=etat.suggCache[+el.dataset.i];if(s){const eq=trouverEquipe(s.equipe);wishlist.unshift({id:uid(),date:Date.now(),equipe:s.equipe,type:eq?eq.type:'club',saison:s.saison||'',marque:s.marque||'',version:'Replica',couleur:'',taille:'',budget:null,alerte:true,statut:'suivi',notes:s.joueur?'Flocage '+s.joueur:'',imageUrl:''});sauver();rendre();toast(`${s.equipe} ajouté à la wishlist.`)}break}
+   case 'sugg-col':{const s=etat.suggCache[+el.dataset.i];if(s){const eq=trouverEquipe(s.equipe);ouvrirFormMaillot({equipe:s.equipe,type:eq?eq.type:'club',saison:s.saison||'',marque:s.marque||'',joueur:s.joueur||''})}break}
    case 'idees':etat.seed++;rendre();break;
-   case 'reset-filtres':etat.filtres={equipe:'',saison:'',couleur:'',categorie:''};etat.recherche='';rendre();break;
-   case 'sugg-wish':{const s=etat.suggCache[+el.dataset.i];if(s){const e=trouverEquipe(s.equipe);wishlist.unshift({id:uid(),date:Date.now(),equipe:s.equipe,type:e?e.type:'club',saison:s.saison||'',marque:s.marque||'',version:'Replica',couleur:'',taille:'',budget:null,alerte:true,statut:'suivi',notes:''});sauver();rendre();toast('Ajouté à la wishlist.')}break}
-   case 'sugg-col':{const s=etat.suggCache[+el.dataset.i];if(s){const e=trouverEquipe(s.equipe);ouvrirFormMaillot({equipe:s.equipe,type:e?e.type:'club',saison:s.saison||'',marque:s.marque||''})}break}
    case 'notifs':etat.panneau=!etat.panneau;rendre();break;
    case 'notif':{const lus=lire(K.notifs,[]);if(!lus.includes(id)){lus.push(id);ecrire(K.notifs,lus)}etat.panneau=false;if(el.dataset.p)etat.page=el.dataset.p;rendre();break}
    case 'notif-lu-tout':ecrire(K.notifs,notifications().map(n=>n.id));rendre();break;
    case 'fermer':fermerModal();break;
-   case 'photo-suppr':{synchroForm();const p=etat.form.photos[+el.dataset.i];if(p){if(p.id)etat.form.photosSupprimees.push(p.id);etat.form.photos.splice(+el.dataset.i,1)}rendre();break}
    case 'lens':await identifierLens();break;
    case 'appliquer':appliquerLens(+el.dataset.i);break;
+   case 'photo-suppr':{synchroForm();const p=etat.form.photos.splice(+el.dataset.i,1)[0];if(p&&p.id)etat.form.photosSupprimees.push(p.id);rendre();break}
    case 'enregistrer':await enregistrerMaillot();break;
    case 'wish-enregistrer':enregistrerWish();break;
    case 'sauver-params':sauverParams(true);break;
    case 'tester':{sauverParams(false);const z=$('#res-test');if(z)z.innerHTML='<div class="aide">Test en cours…</div>';
-    try{await relais('ping');if(z)z.innerHTML='<div class="aide"><b>Connexion réussie.</b></div>'}
-    catch(e){if(z)z.innerHTML=`<div class="aide">Échec : ${esc(e.message)}</div>`}break}
+    try{const j=await relais('test');if(z)z.innerHTML=`<div class="aide" style="color:var(--vert)">Connexion OK · relais v${esc(j.version)} · SerpApi ${j.serpapi?'OK':'absent'} · Lens ${j.lens?'OK':'absent'} · eBay ${j.ebay?'OK':'non configuré'}</div>`}
+    catch(e){if(z)z.innerHTML=`<div class="aide" style="color:var(--rouge)">Échec : ${esc(e.message)}</div>`}break}
    case 'exporter':await exporter();break;
-   case 'maj':{try{const regs=await navigator.serviceWorker.getRegistrations();for(const r of regs)await r.unregister();for(const k of await caches.keys())await caches.delete(k)}catch(e){}location.reload();break}
-  }
- });
- root.addEventListener('input',ev=>{if(ev.target.id==='recherche'){etat.recherche=ev.target.value;const z=$('#zone-liste');if(z){z.innerHTML=listeCollection();chargerPhotos()}}});
- root.addEventListener('change',async ev=>{const t=ev.target;
-  if(t.dataset&&t.dataset.f){etat.filtres[t.dataset.f]=t.value;rendre();return}
-  if(t.id==='fichier-photo'){await ajouterPhotos([...t.files]);return}
-  if(t.id==='fichier-import'){try{await importer(t.files[0])}catch(e){toast('Import impossible : '+e.message)}t.value='';return}
- });
+   case 'vider-wiki':for(const k in WIKI)delete WIKI[k];ecrire(K.wiki,WIKI);rendre();toast('Cache des images web vidé.');break;
+   case 'maj':{try{if(navigator.serviceWorker){const rs=await navigator.serviceWorker.getRegistrations();for(const r of rs)await r.unregister()}if(window.caches){for(const k of await caches.keys())await caches.delete(k)}}catch(e){}location.reload();break}
+   case 'reset-filtres':etat.recherche='';etat.filtres={equipe:'',saison:'',couleur:'',categorie:''};rendre();break;
+  }});
+ root.addEventListener('input',ev=>{if(ev.target.id==='recherche'){etat.recherche=ev.target.value;clearTimeout(rechT);rechT=setTimeout(()=>{const z=$('#zone-liste');if(z){z.innerHTML=listeCollection();chargerPhotos();chargerWiki()}},150)}});
+ root.addEventListener('change',async ev=>{const t=ev.target;if(t.classList.contains('pilule')){etat.filtres[t.dataset.f]=t.value;rendre()}else if(t.id==='fichier-photo'){await ajouterPhotos([...t.files])}else if(t.id==='fichier-import'&&t.files[0]){try{await importer(t.files[0])}catch(e){toast('Import impossible : '+e.message)}}});
  document.addEventListener('keydown',ev=>{if(ev.key==='Escape'&&etat.modal)fermerModal()});
 }
 
+/* ===================== STYLES ===================== */
+const CSS=`
+:root{--vert:#143d2f;--vert2:#1f5a44;--or:#c9a227;--lime:#c6e36b;--fond:#f5f3ee;--beige:#efe9dc;--texte:#14201b;--gris:#6b7570;--ligne:#e6e2d9;--rouge:#e11d48}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--fond);color:var(--texte);font-family:Inter,system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.5}
+h1,h2,h3{font-family:'Playfair Display',Georgia,serif;font-weight:600;margin:0;letter-spacing:-.01em}
+.entete{position:sticky;top:0;z-index:20;background:rgba(245,243,238,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--ligne)}
+.entete-in{max-width:1180px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;gap:14px}
+.brand{cursor:pointer;display:flex;flex-direction:column;line-height:1.1}.brand b{font-family:'Playfair Display',Georgia,serif;font-size:21px;font-weight:700}.brand small{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--gris);margin-top:2px}
+.nav{display:flex;gap:4px;margin-left:auto;background:#fff;border:1px solid var(--ligne);border-radius:999px;padding:4px}.nav button{border:0;background:none;padding:8px 16px;border-radius:999px;font:inherit;font-size:14px;cursor:pointer;color:var(--gris)}.nav button.on{background:var(--beige);color:var(--texte);font-weight:600}
+.bell{position:relative;width:40px;height:40px;border-radius:50%;border:1px solid var(--ligne);background:#fff;cursor:pointer;color:var(--gris);display:grid;place-items:center;margin-left:auto}.nav+.btn-ajouter{margin-left:0}.bell+.nav{margin-left:0}.bell.on{color:#000;border-color:#000}.bell.on svg{fill:#000}.bell .pt{position:absolute;top:8px;right:9px;width:8px;height:8px;border-radius:50%;background:var(--rouge);border:2px solid #fff}
+.ic{width:18px;height:18px;flex:none}
+.btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--ligne);background:#fff;color:var(--texte);padding:10px 16px;border-radius:999px;font:inherit;font-size:14px;font-weight:500;cursor:pointer;text-decoration:none;white-space:nowrap}.btn:hover{border-color:#b9b4a8}.btn-vert{background:var(--vert);color:#fff;border-color:var(--vert)}.btn-vert:hover{background:var(--vert2)}.btn-ic{padding:10px;width:42px;justify-content:center}.btn-rouge{color:var(--rouge)}.btn[disabled]{opacity:.5;cursor:default}
+main{max-width:1180px;margin:0 auto;padding:28px 20px 110px}
+.eyebrow{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--gris);font-weight:600}
+.titre-page{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap;margin-bottom:22px}.titre-page h1{font-size:40px;line-height:1.1;margin:6px 0 10px}.titre-page p{margin:0;color:var(--gris);max-width:720px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}.kpi{background:#fff;border:1px solid var(--ligne);border-radius:16px;padding:18px 20px}.kpi .lab,.wprix .lab{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--gris);font-weight:600}.kpi .val{font-family:'Playfair Display',Georgia,serif;font-size:30px;margin-top:6px;line-height:1.1}.kpi .val.lime{color:#8db63c}.kpi .val.rouge{color:var(--rouge)}.kpi .sub{font-size:12px;color:var(--gris);margin-top:4px}
+.avert{display:flex;gap:12px;align-items:flex-start;background:#e9f1da;border:1px solid #d3e3b5;border-radius:14px;padding:14px 16px;color:#2f4a1e;font-size:14px;margin-bottom:16px}.avert .ic{margin-top:2px}
+.recherche{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--ligne);border-radius:999px;padding:12px 18px;margin-bottom:12px;color:var(--gris)}.recherche input{border:0;outline:0;flex:1;font:inherit;font-size:15px;background:none;color:var(--texte);min-width:0}
+.filtres{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}.pilule{appearance:none;-webkit-appearance:none;border:1px solid var(--ligne);background:#fff url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2314201b' stroke-width='2'><path d='m6 9 6 6 6-6'/></svg>") no-repeat right 14px center;padding:9px 38px 9px 16px;border-radius:999px;font:inherit;font-size:14px;cursor:pointer;color:var(--texte);max-width:220px}
+.compte{color:var(--gris);font-size:14px;margin-bottom:12px}
+.grille{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px}
+.carte{background:#fff;border:1px solid var(--ligne);border-radius:18px;overflow:hidden;cursor:pointer;transition:transform .15s,box-shadow .15s}.carte:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(0,0,0,.08)}
+.img{position:relative;aspect-ratio:4/3;background:var(--beige);overflow:hidden}.img>img{width:100%;height:100%;object-fit:cover;display:block}
+.visu{width:100%;height:100%;display:grid;place-items:center;position:relative}.visu-img{width:100%;height:100%;object-fit:cover;display:block}.visu-img.logo{object-fit:contain;padding:10%}.visu-drapeau{width:100%;height:100%;object-fit:cover;display:block}.visu-maillot{width:60%;max-width:200px}.visu-maillot svg{width:100%;height:auto;display:block}
+.visu>.visu-img+.visu-maillot,.visu>.visu-img+.visu-drapeau{display:none}
+.badge{position:absolute;top:10px;left:10px;background:rgba(245,243,238,.96);border-radius:999px;padding:4px 10px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;font-weight:600;z-index:2}
+.heart{position:absolute;top:8px;right:8px;width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.92);color:#555;display:grid;place-items:center;cursor:pointer;z-index:2}.heart.on{color:var(--rouge)}.heart.on svg{fill:var(--rouge);animation:pop .3s}@keyframes pop{50%{transform:scale(1.3)}}
+.corps{padding:14px 16px 16px}.corps h3{font-size:19px;line-height:1.2}.corps h3 small{font-family:Inter,sans-serif;font-size:13px;color:var(--gris);font-weight:500}.meta{color:var(--gris);font-size:13px;margin-top:3px}.bas{display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px}.bas b{font-family:'Playfair Display',Georgia,serif;font-size:18px}
+.chip{background:var(--beige);border-radius:999px;padding:3px 10px;font-size:12px;white-space:nowrap}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.chips button{border:1px solid var(--ligne);background:#fff;padding:8px 16px;border-radius:999px;font:inherit;font-size:14px;cursor:pointer}.chips button.on{background:var(--vert);color:#fff;border-color:var(--vert)}
+.aide{color:var(--gris);font-size:13px;margin:6px 0}
+.wgrille{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+.wcarte{background:#fff;border:1px solid var(--ligne);border-radius:18px;padding:20px}.wtete{display:flex;gap:14px;align-items:flex-start}.wtete h3{font-size:22px;line-height:1.15}
+.wvisu{width:72px;height:72px;border-radius:14px;overflow:hidden;background:var(--beige);flex:none}.wvisu .visu-maillot{width:78%}.wvisu .visu-img{object-fit:cover}.wvisu .visu-img.logo{object-fit:contain;padding:8%}
+.wbell{margin-left:auto;width:40px;height:40px;border-radius:50%;border:0;background:#e9f1da;color:#2f4a1e;display:grid;place-items:center;cursor:pointer;flex:none}.wbell svg{fill:#2f4a1e}.wbell.off{background:var(--beige);color:#999}.wbell.off svg{fill:none}
+.wsep{border-top:1px solid var(--ligne);margin:16px 0}.wprix{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.wprix .val{font-family:'Playfair Display',Georgia,serif;font-size:22px;margin-top:4px}.arelever{font-family:Inter,sans-serif;font-size:14px;color:var(--gris);font-style:italic}
+.wnote{font-size:13px;color:#3f4a44;margin-top:12px;line-height:1.5}.wnote a{color:var(--vert);display:inline-flex;align-items:center;gap:4px}.wnote .ic{width:14px;height:14px}
+.wactions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center}
+.hero{background:var(--vert);color:#fff;border-radius:24px;padding:40px;position:relative;overflow:hidden;margin-bottom:28px}.hero h1{font-size:40px;line-height:1.1;margin:8px 0 12px;max-width:620px}.hero p{max-width:620px;opacity:.85;margin:0}.stats{display:flex;gap:22px;flex-wrap:wrap;margin-top:22px;font-size:14px;position:relative;z-index:1}.stats span::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--or);margin-right:8px}.deco{position:absolute;right:-30px;bottom:-50px;width:280px;opacity:.08}
+.section{display:flex;justify-content:space-between;align-items:center;margin:28px 0 14px;gap:10px}.section h2{font-size:26px}
+.sugg{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}.sugg-carte{cursor:default}.cit{font-style:italic;color:#3f4a44;font-size:13.5px;margin-top:8px;font-family:'Playfair Display',Georgia,serif;line-height:1.45}.raison{font-size:12px;color:var(--gris);margin-top:6px}
+.vide{text-align:center;padding:50px 20px;background:#fff;border:1px dashed var(--ligne);border-radius:18px;color:var(--gris)}.vide h3{color:var(--texte);margin:14px 0 6px;font-size:22px}.vide .visu{width:100px;height:100px;margin:0 auto}.vide .visu-maillot{width:100%}
+.carte-param{background:#fff;border:1px solid var(--ligne);border-radius:18px;padding:22px;margin-bottom:16px}.carte-param h2{font-size:22px;margin-bottom:12px}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:12px}.form label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--gris);font-weight:600;letter-spacing:.04em}.form input,.form select,.form textarea{border:1px solid var(--ligne);border-radius:12px;padding:10px 12px;font:inherit;font-size:15px;color:var(--texte);background:#fafaf7;width:100%}.form textarea{min-height:70px;resize:vertical}.form .plein{grid-column:1/-1}.form .coche{flex-direction:row;align-items:center;gap:10px;font-weight:500;color:var(--texte);letter-spacing:0;font-size:14px}.form .coche input{width:18px;height:18px}
+.quota{height:8px;background:var(--beige);border-radius:999px;overflow:hidden;margin-top:10px}.quota i{display:block;height:100%;background:var(--vert)}
+.voile{position:fixed;inset:0;background:rgba(20,32,27,.55);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:30px 14px;overflow:auto}
+.modal{background:#fff;border-radius:22px;padding:26px;width:100%;max-width:700px;position:relative}.modal h2{font-size:28px;margin:4px 0 14px;padding-right:44px}.fermer{position:absolute;top:14px;right:14px;z-index:3}
+.carrousel{position:relative;aspect-ratio:4/3;border-radius:16px;overflow:hidden;background:var(--beige);display:grid;place-items:center;margin-bottom:16px}.carrousel>img{width:100%;height:100%;object-fit:contain;display:block}.carrousel .visu-maillot{width:45%}.carrousel .visu-drapeau{width:60%;height:auto}
+.fl{position:absolute;top:50%;transform:translateY(-50%);width:38px;height:38px;border-radius:50%;border:0;background:rgba(255,255,255,.9);cursor:pointer;display:grid;place-items:center;z-index:2}.fl.g{left:10px}.fl.d{right:10px}.pts{position:absolute;bottom:10px;left:0;right:0;display:flex;justify-content:center;gap:6px}.pts i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.6)}.pts i.on{background:#fff}
+.ftete{display:flex;gap:14px;align-items:center;margin-bottom:14px}.ftete h2{margin:2px 0 4px;padding-right:0}.det{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;font-size:14px;margin:14px 0}.det .lab{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--gris)}
+.photos-edit{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}.ph{width:96px;height:96px;border-radius:14px;overflow:hidden;position:relative;background:var(--beige);border:1px dashed var(--ligne);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:12px;color:var(--gris);cursor:pointer}.ph img{width:100%;height:100%;object-fit:cover}.ph .x{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;border:0;background:rgba(255,255,255,.9);display:grid;place-items:center;cursor:pointer}.ph .x .ic{width:12px;height:12px}
+.lens-res{background:var(--fond);border-radius:14px;padding:14px;margin:12px 0;font-size:14px}.props{display:flex;flex-direction:column;gap:8px;margin-top:8px}.prop{display:flex;align-items:center;gap:12px;background:#fff;border-radius:12px;padding:10px}.mini{width:44px;height:44px;border-radius:10px;overflow:hidden;background:var(--beige);flex:none}.mini .visu-maillot{width:80%}.mini .visu-img.logo{padding:6%}
+.simil{display:flex;gap:8px;overflow-x:auto;padding:8px 0}.simil img{width:90px;height:90px;object-fit:cover;border-radius:10px;border:1px solid var(--ligne);flex:none}
+.panneau{position:fixed;top:70px;right:20px;width:360px;max-width:calc(100% - 40px);background:#fff;border:1px solid var(--ligne);border-radius:18px;padding:18px;z-index:40;box-shadow:0 20px 50px rgba(0,0,0,.15);max-height:70vh;overflow:auto}.notif{padding:12px 0;border-top:1px solid var(--ligne);cursor:pointer;display:flex;flex-direction:column;gap:3px;font-size:14px}.notif span{color:var(--gris);font-size:13px}.notif.lu{opacity:.5}
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--texte);color:#fff;padding:12px 20px;border-radius:999px;font-size:14px;z-index:100;display:none;max-width:90%;text-align:center}
+.barre{display:none}
+@media(max-width:760px){.nav,.btn-ajouter{display:none}.barre{display:flex;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--ligne);z-index:30;padding:6px 6px calc(6px + env(safe-area-inset-bottom))}.barre button{flex:1;border:0;background:none;font:inherit;font-size:11px;color:var(--gris);display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;cursor:pointer}.barre button.on{color:var(--vert);font-weight:600}.barre .plus{flex:none;width:54px;height:54px;border-radius:50%;background:var(--vert);color:#fff;margin-top:-22px;display:grid;place-items:center;box-shadow:0 6px 16px rgba(20,61,47,.35)}.barre .plus .ic{width:24px;height:24px}
+.kpis{grid-template-columns:1fr 1fr}.kpi .val{font-size:24px}.titre-page h1,.hero h1{font-size:30px}.hero{padding:26px}.form,.det{grid-template-columns:1fr}.wgrille{grid-template-columns:1fr}.panneau{top:64px;right:10px}.modal{padding:20px}.voile{padding:14px 8px}.toast{bottom:100px}}
+`;
+function styles(){$$('style[id^="style-v"]').forEach(s=>s.remove());if(!$('#fonts-mm')){const l=document.createElement('link');l.id='fonts-mm';l.rel='stylesheet';l.href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@500;600;700&display=swap';document.head.appendChild(l)}const s=document.createElement('style');s.id='style-v31';s.textContent=CSS;document.head.appendChild(s)}
+
 /* ===================== DÉMARRAGE ===================== */
-async function demarrer(){
- root=document.getElementById('app')||document.getElementById('root')||(()=>{const d=document.createElement('div');d.id='app';document.body.appendChild(d);return d})();
- brancher();
- try{await migrer()}catch(e){console.error('Migration :',e)}
- rendre();
- ['chargement','loader','loading'].forEach(i=>{const el=document.getElementById(i);if(el&&el!==root&&!root.contains(el))el.remove()});
- veilleAuto().catch(()=>{});
- if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
-}
+async function demarrer(){styles();root=$('#app');if(!root){root=document.createElement('div');root.id='app';document.body.appendChild(root)}
+ brancher();await migrer();rendre();
+ if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
+ setTimeout(()=>veilleAuto(),4000)}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',demarrer);else demarrer();
 })();
