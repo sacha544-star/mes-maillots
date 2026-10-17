@@ -1,6 +1,6 @@
 'use strict';
 (function(){
-const VERSION='3.4';
+const VERSION='3.5';
 const QUOTA_MAX=250;
 
 /* ===================== UTILITAIRES ===================== */
@@ -704,7 +704,7 @@ Boca Juniors|1981|Adidas|Diego Maradona|#1b3a8a|#f9d548|bande|La bande or de la 
 Fiorentina|1998-1999|Fila|Gabriel Batistuta|#5a2d91|#ffffff|uni|Le violet de Batistuta, sponsor Nintendo compris.|Gabriel Batistuta;ACF Fiorentina
 Borussia Dortmund|1996-1997|Nike||#f9d548|#000000|uni|Le jaune du sacre en Ligue des champions face à la Juventus.|Finale de la Ligue des champions de l'UEFA 1996-1997;Borussia Dortmund
 `;
-
+ /* ---------- Analyse des dictionnaires ---------- */
 const lignes=t=>t.split('\n').map(l=>l.trim()).filter(Boolean);
 const SELECTIONS=lignes(SELECTIONS_BRUT).map(l=>{const p=l.split('|');const iso=p[1]||'';let c1=null,c2=null;if(iso.startsWith('#')){[c1,c2]=iso.split('/')}return{nom:p[0],type:'selection',iso:iso.startsWith('#')?null:iso,c1,c2,motif:'uni',alias:(p[2]||'').split(',').map(s=>s.trim()).filter(Boolean)}});
 const CLUBS=lignes(CLUBS_BRUT).map(l=>{const p=l.split('|');return{nom:p[0],type:'club',pays:p[1],c1:p[2],c2:p[3],motif:p[4]||'uni',alias:(p[5]||'').split(',').map(s=>s.trim()).filter(Boolean)}});
@@ -773,7 +773,7 @@ function visuelEquipe(nom,o={}){const e=trouverEquipe(nom);let titres=o.wiki||[]
 const btnPhoto=(q,style='')=>q&&params.photosWeb!==false&&urlImages()?`<button type="button" class="btn btn-ic" data-a="img-suivante" data-q="${esc(q)}" title="Changer la photo (sans recherche supplémentaire)"${style?` style="${style}"`:''}>${I('camera')}</button>`:'';
 
 /* ===================== ÉTAT & STOCKAGE ===================== */
-let collection=lire(K.col,[]),wishlist=lire(K.wish,[]),params=Object.assign({relais:'',relaisImages:'',code:'',prenom:'',dernierExport:0,ebay:true,vinted:true,veille:true,photosWeb:true},lire(K.params,{}));
+let collection=lire(K.col,[]),wishlist=lire(K.wish,[]),params=Object.assign({relais:'',relaisImages:'',code:'',prenom:'',dernierExport:0,ebay:true,vinted:true,google:true,veille:true,photosWeb:true},lire(K.params,{}));
 const etat={page:'accueil',recherche:'',filtres:{equipe:'',saison:'',couleur:'',categorie:''},statutWish:'suivi',seed:1,modal:null,form:null,panneau:false,carrousel:0,ficheId:null,wishId:null,lens:null,lensHtml:'',suggCache:[],srcOuverte:''};
 let root;
 function sauver(){ecrire(K.col,collection);ecrire(K.wish,wishlist);ecrire(K.params,params)}
@@ -788,16 +788,18 @@ const PHOTOS=(()=>{let dbp=null;const cache=new Map();
   async del(id){if(!id||String(id).startsWith('data:'))return;cache.delete(id);try{await tx('readwrite',s=>s.delete(id))}catch(e){}},
   async tout(){const d=await db();return new Promise((res,rej)=>{const out={};const c=d.transaction('photos','readonly').objectStore('photos').openCursor();c.onsuccess=()=>{const cur=c.result;if(cur){out[cur.key]=cur.value;cur.continue()}else res(out)};c.onerror=()=>rej(c.error)})}
  }})();
-
 async function migrer(){let ch=false;
  for(const m of collection){if(!Array.isArray(m.photos)){m.photos=[];ch=true}
   if(m.photo){m.photos.unshift(m.photo);delete m.photo;ch=true}
   for(let i=0;i<m.photos.length;i++){if(String(m.photos[i]).startsWith('data:')){m.photos[i]=await PHOTOS.put(m.photos[i]);ch=true}}
   if(!m.version){m.version='Replica';ch=true}if(!m.type){m.type=(trouverEquipe(m.equipe)||{}).type||'club';ch=true}
-  if(m.flocage==null){m.flocage=!!(m.joueur||m.numero);ch=true}}
+  if(m.flocage==null){m.flocage=!!(m.joueur||m.numero);ch=true}
+  const pa=m.prixAchat??m.prix??m.achat;if(pa!=null&&m.prixAchat==null){m.prixAchat=Number(pa)||0;ch=true}}
  for(const w of wishlist){if(!w.statut){w.statut='suivi';ch=true}if(w.alerte==null){w.alerte=true;ch=true}if(!w.version){w.version='Replica';ch=true}if(w.imageUrl==null){w.imageUrl='';ch=true}
-  if(w.flocage==null){w.flocage=!!(w.joueur||w.numero);w.joueur=w.joueur||'';w.numero=w.numero||'';ch=true}}
+  if(w.flocage==null){w.flocage=!!(w.joueur||w.numero);w.joueur=w.joueur||'';w.numero=w.numero||'';ch=true}
+  const bu=w.budget??w.prixMax;if(bu!=null&&w.budget==null){w.budget=Number(bu)||0;ch=true}}
  if(!params.v34){params.v34=true;params.ebay=true;if(params.vinted==null)params.vinted=true;ch=true}
+ if(!params.v35){params.v35=true;if(params.google==null)params.google=true;ch=true}
  if(ch)sauver()}
 
 /* ===================== RELAIS, QUOTA, PRIX ===================== */
@@ -811,38 +813,47 @@ function parsePrix(s){const m=String(s||'').replace(/\u00a0/g,' ').match(/(\d{1,
 const SUSPECTS=/\b(copie|contrefa\w*|fake|replique chinoise|lot de|enfant|kids|junior|bebe|short|chaussette|echarpe|poster|carte|sticker|figurine|ballon|casquette|survetement|veste|pantalon|training|entrainement)\b/;
 const sourceDe=(s,lien)=>{const t=norm(String(s||'')+' '+String(lien||''));return /vinted/.test(t)?'Vinted':/leboncoin/.test(t)?'Leboncoin':/ebay/.test(t)?'eBay':'Web'};
 function normaliserAnnonces(j,forceSrc){let liste=j.annonces||j.resultats||j.items||j.organic_results||j.shopping_results||[];if(!Array.isArray(liste))liste=[];
- return liste.map(a=>{const titre=a.titre||a.title||'';const texte=titre+' '+(a.snippet||a.description||'');let prix=a.prix??a.price??a.extracted_price;if(typeof prix==='string')prix=parsePrix(prix);if(prix==null||isNaN(prix))prix=parsePrix(texte);
+ return liste.map(a=>{const titre=a.titre||a.title||'';const texte=titre+' '+(a.snippet||a.extrait||a.description||'');let prix=a.prix??a.price??a.extracted_price;if(typeof prix==='string')prix=parsePrix(prix);if(prix==null||isNaN(prix))prix=parsePrix(texte);
   const lien=a.lien||a.link||a.url||'';
   return{titre:String(titre).slice(0,140),prix:Number(prix),lien,source:forceSrc||sourceDe(a.source,lien),etat:String(a.etat||a.condition||'').slice(0,40),sus:SUSPECTS.test(norm(texte))}}).filter(a=>a.prix>0)}
 function analyserPrix(annonces){const ok=(annonces||[]).filter(a=>!(a.sus||SUSPECTS.test(norm(a.texte||a.titre))));const prix=ok.map(a=>a.prix).sort((a,b)=>a-b);if(!prix.length)return null;
  const med=prix[Math.floor(prix.length/2)];const fiables=ok.filter(a=>a.prix>=med*0.4&&a.prix<=med*3).sort((a,b)=>a.prix-b.prix);const pf=fiables.map(a=>a.prix);const mediane=pf.length?pf[Math.floor(pf.length/2)]:med;
  const parSource={};ok.forEach(a=>{parSource[a.source]=(parSource[a.source]||0)+1});
  return{mediane,min:pf.length?pf[0]:med,max:pf.length?pf[pf.length-1]:med,nb:ok.length,ecartes:(annonces||[]).length-ok.length,parSource,fiables}}
-/* Requête principale + requêtes de repli (saison courte, sans joueur, traductions) */
 function requetesRepli(x){const eq=trouverEquipe(x.equipe);const nomEq=String(x.equipe||'').trim();const j=joueurDe(x);const s=String(x.saison||'').trim();const s1=(s.match(/(?:19|20)\d{2}/)||[''])[0];
  const out=[];const add=a=>{const q=a.filter(Boolean).join(' ').replace(/\s+/g,' ').trim();if(q&&!out.includes(q))out.push(q)};
  add([nomEq,'maillot',s,x.marque,j]);add([nomEq,'maillot',s1,x.marque,j]);add([nomEq,'maillot',s1,x.marque]);add([nomEq,'maillot',s1]);
  if(eq){eq.alias.filter(a=>!/^[A-Z0-9]{2,5}$/.test(a)&&norm(a)!==norm(nomEq)).slice(0,2).forEach(a=>add([a,eq.type==='selection'?'jersey':'shirt',s1,j]))}
  add([nomEq,'maillot']);return out.slice(0,6)}
-/* Collecte des annonces : eBay (gratuit) + Vinted/Leboncoin via Google (SerpApi) */
+/* Boutiques / prix neuf via Google (1 recherche SerpApi, cache 7 jours côté relais) — repère seulement, jamais dans la médiane */
+async function collecterBoutiques(x){const out={boutiques:[],liensBoutiques:[],boutiquesCherche:false,dateBoutiques:0,boutiquesCache:false,serpapi:0,erreurs:[]};
+ if(params.google===false||!params.relais)return out;
+ if(quota().utilise>=QUOTA_MAX-2){out.erreurs.push('Boutiques Google non cherchées : quota SerpApi du mois épuisé.');return out}
+ try{const q=requetesRepli(x)[0];const j=await relais('google',{q});out.boutiquesCherche=true;out.dateBoutiques=Date.now();out.boutiquesCache=!!j.cache;out.serpapi=j.cache?0:(j.serpapi_utilise?1:0);
+  out.boutiques=(j.boutiques||[]).map(b=>({titre:String(b.titre||'').slice(0,140),lien:String(b.lien||''),prix:Number(b.prix)||0,source:String(b.source||b.domaine||'Boutique').slice(0,40),extrait:String(b.extrait||'').slice(0,160)})).filter(b=>b.lien).sort((a,b)=>(a.prix||1e9)-(b.prix||1e9)).slice(0,20);
+  out.liensBoutiques=(j.liens||[]).map(b=>({titre:String(b.titre||'').slice(0,140),lien:String(b.lien||''),source:String(b.source||b.domaine||'Web').slice(0,40)})).filter(b=>b.lien).slice(0,8)}
+ catch(e){out.erreurs.push('Boutiques Google : '+e.message)}
+ return out}
 async function collecter(x,o={}){const reqs=requetesRepli(x);const out={date:Date.now(),annonces:[],erreurs:[],serpapi:0,vintedCherche:false,sources:[],requete:reqs[0]};
  if(params.ebay!==false&&!o.sansEbay){out.sources.push('eBay');try{const j=await relais('ebay',{q:reqs[0],repli:reqs.slice(1)});out.annonces=out.annonces.concat(normaliserAnnonces(j,'eBay'))}catch(e){out.erreurs.push('eBay : '+e.message)}}
  if(params.vinted!==false&&!o.sansVinted){if(quota().utilise>=QUOTA_MAX-2)out.erreurs.push('Vinted/Leboncoin non cherchés : quota SerpApi du mois épuisé.');
   else{try{const q=o.large?(reqs[1]||reqs[0]):reqs[0];const j=await relais('annonces',{q,repli:o.large?reqs.slice(2):reqs.slice(1)});out.vintedCherche=true;out.sources.push('Vinted','Leboncoin','Web');out.serpapi=j.cache?0:(Number(j.serpapi_recherches)||(j.serpapi_utilise?1:0));out.annonces=out.annonces.concat(normaliserAnnonces(j))}catch(e){out.erreurs.push('Vinted/Leboncoin : '+e.message)}}}
+ if(o.google&&params.google!==false){const b=await collecterBoutiques(x);Object.assign(out,{boutiques:b.boutiques,liensBoutiques:b.liensBoutiques,boutiquesCherche:b.boutiquesCherche,dateBoutiques:b.dateBoutiques,boutiquesCache:b.boutiquesCache});out.serpapi+=b.serpapi;out.erreurs.push(...b.erreurs)}
  const vus=new Set();out.annonces=out.annonces.filter(a=>{const k=a.lien||a.titre;if(vus.has(k))return false;vus.add(k);return true}).slice(0,40);return out}
-/* Fusion avec le relevé précédent : on garde les annonces des sources qui n'ont pas été re-cherchées */
 function fusion(base,c){const refresh=new Set(c.sources||[]);const anciennes=((base&&base.annonces)||[]).filter(a=>!refresh.has(a.source));const vus=new Set();
- const annonces=[...c.annonces,...anciennes].filter(a=>{const k=a.lien||a.titre;if(vus.has(k))return false;vus.add(k);return true}).slice(0,40);
- return{date:Date.now(),annonces,erreurs:c.erreurs,serpapi:c.serpapi,vintedCherche:!!(c.vintedCherche||(base&&base.vintedCherche)),requete:c.requete}}
+ const annonces=[...(c.annonces||[]),...anciennes].filter(a=>{const k=a.lien||a.titre;if(vus.has(k))return false;vus.add(k);return true}).slice(0,40);
+ const r={date:Date.now(),annonces,erreurs:c.erreurs||[],serpapi:c.serpapi||0,vintedCherche:!!(c.vintedCherche||(base&&base.vintedCherche)),requete:c.requete||(base&&base.requete)||''};
+ const b=c.boutiquesCherche?c:(base||{});r.boutiques=b.boutiques||[];r.liensBoutiques=b.liensBoutiques||[];r.boutiquesCherche=!!b.boutiquesCherche;r.dateBoutiques=b.dateBoutiques||0;r.boutiquesCache=!!b.boutiquesCache;
+ return r}
 function appliquerReleveMaillot(m,r){m.releve=r;const s=analyserPrix(r.annonces);if(s){m.valeur=s.mediane;m.dateEstimation=r.date}return s}
 function appliquerReleveWish(w,r){const s=analyserPrix(r.annonces);w.dernierReleve=r.date;w.releve=r;
  if(s){w.dernierPrix=s.mediane;w.meilleurPrix=s.min;if(w.prixRef==null)w.prixRef=s.mediane;w.nbAnnonces=s.nb;w.dernierSource=Object.entries(s.parSource).map(([k,v])=>`${k} (${v} annonce${v>1?'s':''})`).join(' et ');
   w.meilleureAnnonce=s.fiables[0]?{titre:s.fiables[0].titre,prix:s.fiables[0].prix,lien:s.fiables[0].lien,source:s.fiables[0].source}:null;
   (w.historique=w.historique||[]).push({date:r.date,prix:s.mediane,min:s.min});if(w.historique.length>30)w.historique.shift()}
  else{w.nbAnnonces=0;w.dernierSource='aucune annonce exploitable'}return s}
-async function estimerMaillot(m){if(!params.relais){toast('Configure le relais dans Paramètres.');return}toast('Recherche des annonces (eBay, Vinted, Leboncoin)…',true);
- const c=await collecter(m);const s=appliquerReleveMaillot(m,fusion(m.releve,c));sauver();rendre();
- toast(s?`Valeur estimée ${euros(s.mediane)} · ${c.annonces.length} annonces, détail dans la fiche.`:'Aucune annonce exploitable : essaie « Compléter avec Vinted/Leboncoin » ou simplifie la saison.')}
+async function estimerMaillot(m){if(!params.relais){toast('Configure le relais dans Paramètres.');return}toast(`Recherche des annonces (eBay, Vinted, Leboncoin${params.google!==false?' + boutiques Google':''})…`,true);
+ const c=await collecter(m,{google:true});const s=appliquerReleveMaillot(m,fusion(m.releve,c));sauver();rendre();
+ toast(s?`Valeur estimée ${euros(s.mediane)} (occasion) · ${c.annonces.length} annonces, détail dans la fiche.`:'Aucune annonce d\'occasion exploitable : essaie « Compléter avec Vinted/Leboncoin » ou simplifie la saison.')}
 async function verifierPrix(ids,auto){if(!params.relais){if(!auto)toast('Configure d\'abord le relais dans Paramètres.');return}
  const cibles=wishlist.filter(w=>w.statut==='suivi'&&(!ids||ids.includes(w.id))).sort((a,b)=>(a.dernierReleve||0)-(b.dernierReleve||0)).slice(0,6);
  if(!cibles.length){toast('Aucun maillot suivi à vérifier.');return}
@@ -850,392 +861,422 @@ async function verifierPrix(ids,auto){if(!params.relais){if(!auto)toast('Configu
  sauver();rendre();toast(auto?'Veille eBay du jour terminée.':'Prix mis à jour.')}
 async function veilleAuto(){if(params.veille===false||!params.relais)return;if(Date.now()-lire(K.veille,0)<24*3600e3)return;if(!wishlist.some(w=>w.statut==='suivi'))return;ecrire(K.veille,Date.now());await verifierPrix(null,true)}
 
-/* Bloc « estimation détaillée » : par source + annonces cliquables */
 const SOURCES=['eBay','Vinted','Leboncoin','Web'];
 function actionsVinted(cible,r){return params.vinted!==false&&params.relais?`<button type="button" class="btn" data-a="estim-vinted" data-c="${esc(cible)}">${I('search')} Compléter avec Vinted/Leboncoin${r&&r.vintedCherche?' (requête plus large)':''}</button>`:''}
+function actionsGoogle(cible){return params.google!==false&&params.relais?`<button type="button" class="btn" data-a="estim-google" data-c="${esc(cible)}">${I('bag')} Compléter avec Google (boutiques)</button>`:''}
 function blocEstimation(r,pref,o={}){if(!r)return '';const an=r.annonces||[];const g=analyserPrix(an);
  let h=`<div class="estim"><div class="eyebrow">${o.titre||'Estimation'} · ${dateFr(r.date)} · ${an.length} annonce${an.length>1?'s':''}${r.serpapi?` · ${r.serpapi} recherche${r.serpapi>1?'s':''} SerpApi`:(r.vintedCherche?' · Vinted/Leboncoin depuis le cache (0 SerpApi)':'')}</div>`;
- h+=g?`<div class="estim-glob">Estimation globale : <b>${euros(g.mediane)}</b> <span class="aide" style="margin:0">médiane de ${g.fiables.length} annonces fiables${g.ecartes?`, ${g.ecartes} écartée${g.ecartes>1?'s':''}`:''} · fourchette ${euros(g.min)} – ${euros(g.max)}</span></div>`:`<div class="estim-glob">Aucune annonce exploitable pour le moment.</div>`;
+ h+=g?`<div class="estim-glob">Estimation globale (occasion) : <b>${euros(g.mediane)}</b> <span class="aide" style="margin:0">médiane de ${g.fiables.length} annonces fiables${g.ecartes?`, ${g.ecartes} écartée${g.ecartes>1?'s':''}`:''} · fourchette ${euros(g.min)} – ${euros(g.max)}</span></div>`:`<div class="estim-glob">Aucune annonce d'occasion exploitable pour le moment.</div>`;
  for(const s of SOURCES){const l=an.filter(a=>a.source===s);
   if(!l.length){if(s==='Web')continue;h+=`<div class="src"><b>${s}</b><span class="aide" style="margin:0">${s==='eBay'?(params.ebay===false?'désactivé dans Paramètres':'aucune annonce trouvée'):(r.vintedCherche?'aucune annonce trouvée':'pas encore cherché')}</span></div>`;continue}
   const st=analyserPrix(l);const cle=pref+'|'+s;const ouvert=etat.srcOuverte===cle;
   h+=`<div class="src"><b>${s}</b><span>${l.length} annonce${l.length>1?'s':''}${st?` · médiane ${euros(st.mediane)} · ${euros(st.min)} – ${euros(st.max)}`:' · toutes écartées (suspectes)'}</span><button type="button" class="btn" style="margin-left:auto;padding:6px 12px;font-size:12px" data-a="estim-src" data-s="${esc(cle)}">${ouvert?'Masquer':'Voir les annonces'}</button></div>`;
   if(ouvert)h+=`<div class="annonces">${[...l].sort((a,b)=>a.prix-b.prix).map(a=>`<a class="ann${a.sus?' sus':''}" href="${esc(a.lien||'#')}" target="_blank" rel="noopener" title="${a.sus?'Écartée du calcul (mot suspect dans le titre)':'Ouvrir l\'annonce'}"><span class="t">${esc(a.titre||'Annonce')}</span>${a.etat?`<span class="e">${esc(a.etat)}</span>`:''}<b>${euros(a.prix)}</b>${I('ext')}</a>`).join('')}</div>`}
+ /* Boutiques (prix neuf) : repère affiché à part, hors calcul */
+ const bq=r.boutiques||[],lb=r.liensBoutiques||[];
+ if(params.google!==false||r.boutiquesCherche){const cle=pref+'|Boutiques';const ouvert=etat.srcOuverte===cle;const px=bq.map(b=>b.prix).filter(p=>p>0).sort((a,b)=>a-b);
+  if(!r.boutiquesCherche)h+=`<div class="src"><b>Boutiques · prix neuf (Google)</b><span class="aide" style="margin:0">pas encore cherché</span></div>`;
+  else{h+=`<div class="src"><b>Boutiques · prix neuf (Google)</b><span>${px.length?`à partir de <b>${euros(px[0])}</b>${px.length>1?` · ${euros(px[0])} – ${euros(px[px.length-1])}`:''} · ${px.length} produit${px.length>1?'s':''}`:(lb.length?`${lb.length} lien${lb.length>1?'s':''} sans prix`:'aucune boutique trouvée')}${r.boutiquesCache?' · cache (0 SerpApi)':''}${r.dateBoutiques?` · ${dateFr(r.dateBoutiques)}`:''}</span>${(bq.length||lb.length)?`<button type="button" class="btn" style="margin-left:auto;padding:6px 12px;font-size:12px" data-a="estim-src" data-s="${esc(cle)}">${ouvert?'Masquer':'Voir les boutiques'}</button>`:''}</div>`;
+   if(ouvert)h+=`<div class="annonces">${bq.map(b=>`<a class="ann" href="${esc(b.lien)}" target="_blank" rel="noopener" title="Ouvrir la boutique"><span class="t"><b>${esc(b.source)}</b> · ${esc(b.titre||'Produit')}</span><span class="e">neuf</span>${b.prix>0?`<b>${euros(b.prix)}</b>`:''}${I('ext')}</a>`).join('')}${lb.map(b=>`<a class="ann" href="${esc(b.lien)}" target="_blank" rel="noopener" title="Ouvrir le lien"><span class="t"><b>${esc(b.source)}</b> · ${esc(b.titre||'Lien')}</span><span class="e">sans prix</span>${I('ext')}</a>`).join('')}</div><div class="aide">Prix neufs en boutique : simple repère, ils n'entrent pas dans l'estimation.</div>`}}
  if(r.erreurs&&r.erreurs.length)h+=`<div class="aide" style="color:var(--rouge)">${r.erreurs.map(esc).join('<br>')}</div>`;
  if(o.actions)h+=`<div class="wactions" style="margin-top:10px">${o.actions}</div>`;
  return h+'</div>'}
 
-/* ===================== GOOGLE LENS ===================== */
-function compresser(src,max,q){return new Promise((res,rej)=>{const img=new Image();let url=null;if(typeof src!=='string'){url=URL.createObjectURL(src);src=url}
- img.onload=()=>{const r=Math.min(1,max/Math.max(img.width,img.height));const c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.width*r));c.height=Math.max(1,Math.round(img.height*r));c.getContext('2d').drawImage(img,0,0,c.width,c.height);if(url)URL.revokeObjectURL(url);res(c.toDataURL('image/jpeg',q))};
- img.onerror=()=>rej(new Error('Image illisible'));img.src=src})}
-function analyserLens(matches,indice){const eqI=indice?trouverEquipe(indice):null;const nI=norm(indice||'');
- const mentionne=x=>{if(x.indice_ok)return true;const tt=' '+norm((x.title||'')+' '+(x.source||''))+' ';if(nI&&tt.includes(' '+nI+' '))return true;if(!eqI)return false;return [eqI.nom,...eqI.alias].some(a=>norm(a).length>=3&&tt.includes(' '+norm(a)+' '))};
- const avecIndice=indice?matches.filter(mentionne):[];const base=avecIndice.length>=2?avecIndice:matches;
- const titresTous=matches.map(x=>norm((x.title||'')+' '+(x.source||'')));const titres=base.map(x=>norm((x.title||'')+' '+(x.source||'')));const score=new Map();
- for(const t of titresTous){const tt=' '+t+' ';const vus=new Set();for(const [k,e] of INDEX){if(k.length<3)continue;if(tt.includes(' '+k+' ')&&!vus.has(e.nom)){vus.add(e.nom);score.set(e.nom,(score.get(e.nom)||0)+1+k.length/20)}}}
- if(eqI)score.set(eqI.nom,(score.get(eqI.nom)||0)+1000);
- const equipes=[...score.entries()].sort((a,b)=>b[1]-a[1]).slice(0,5).map(([nom])=>({nom,indice:!!(eqI&&eqI.nom===nom)}));
- const tout=' '+titres.join(' ')+' ';const compte=re=>(tout.match(re)||[]).length;
- const saisons=new Map();for(const t of titres){const re=/\b((?:19|20)\d{2})(?:\s*[-\/]\s*((?:19|20)?\d{2}))?\b/g;let m;while((m=re.exec(t))){let s=m[1];if(m[2])s+='-'+(m[2].length===2?m[1].slice(0,2)+m[2]:m[2]);saisons.set(s,(saisons.get(s)||0)+1)}}
- const saison=([...saisons.entries()].sort((a,b)=>b[1]-a[1])[0]||[''])[0];
- const marque=(MARQUES.map(m=>[m,compte(new RegExp(' '+norm(m)+' ','g'))]).filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1])[0]||[''])[0];
- const version=/ (match worn|porte en match|match issue) /.test(tout)?'Porté en match':/ (authentic|authentique|player issue|player version|vapor|adizero|heat rdy|aeroswift) /.test(tout)?'Authentic':'Replica';
- const categorie=/ (away|exterieur) /.test(tout)?'Extérieur':/ (third|3rd|troisieme) /.test(tout)?'Third':/ (goalkeeper|gardien|gk|portero) /.test(tout)?'Gardien':/ (home|domicile) /.test(tout)?'Domicile':'';
- const COUL=[['Blanc',/ (blanc|white|bianco|blanco|weiss) /g],['Noir',/ (noir|black|nero|negro|schwarz) /g],['Rouge',/ (rouge|red|rosso|rojo|rot) /g],['Bleu',/ (bleu|blue|blu|azul|blau) /g],['Vert',/ (vert|green|verde|grun) /g],['Jaune',/ (jaune|yellow|giallo|amarillo|gelb) /g],['Orange',/ (orange|naranja|arancio) /g],['Violet',/ (violet|purple|viola|morado) /g],['Rose',/ (rose|pink|rosa) /g],['Gris',/ (gris|grey|gray|grigio) /g],['Bordeaux',/ (bordeaux|maroon|claret|granate) /g]];
- const couleur=(COUL.map(([n,re])=>[n,compte(re)]).filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1])[0]||[''])[0];
- const nums=new Map();for(const t of titres){const re=/\b(?:n|no|numero|number)\s*(\d{1,2})\b/g;let m;while((m=re.exec(t)))nums.set(m[1],(nums.get(m[1])||0)+1)}
- const numero=([...nums.entries()].sort((a,b)=>b[1]-a[1])[0]||[''])[0];
- return{equipes,saison,marque,version,categorie,couleur,numero,nbIndice:avecIndice.length,indiceInconnu:!!(indice&&!eqI),images:matches.filter(x=>x.thumbnail).slice(0,8).map(x=>({src:x.thumbnail,lien:x.link,titre:x.title||'',source:x.source||''}))}}
-async function identifierLens(){synchroForm();const p=etat.form.photos[0];if(!p){toast('Ajoute d\'abord une photo.');return}if(!params.relais){toast('Configure le relais dans Paramètres.');return}
- const indice=(etat.form.indice||'').trim();etat.lensHtml='<div class="lens-res">Analyse de la photo avec Google Lens…</div>';rendre();
- try{const src=p.data||await PHOTOS.get(p.id);const img=await compresser(src,800,0.8);const donnees={image:img};if(indice)donnees.indice=indice;const j=await relais('lens',donnees);const matches=j.visual_matches||j.matches||j.resultats||[];
-  if(!matches.length){etat.lensHtml='<div class="lens-res">Aucune correspondance trouvée. Essaie une photo plus nette, de face, écusson visible, ou ajoute un indice (pays, club).</div>';rendre();return}
-  const a=analyserLens(matches,indice);etat.lens=a;etat.form.similaires=a.images;const details=[a.saison,a.marque,a.version,a.categorie,a.couleur,a.numero?'n° '+a.numero:''].filter(Boolean).map(esc).join(' · ');
-  const infoIndice=indice?` · indice « ${esc(indice)} » : ${a.indiceInconnu?'inconnu du dictionnaire':a.nbIndice+' résultat'+(a.nbIndice>1?'s':'')+' le mentionne'+(a.nbIndice>1?'nt':'')}`:'';
-  etat.lensHtml=`<div class="lens-res"><div class="eyebrow">Propositions · ${matches.length} correspondances${j.cache?' (cache)':''}${infoIndice}</div><div class="props">${a.equipes.length?a.equipes.map((e,i)=>`<div class="prop"><div class="mini">${visuelEquipe(e.nom)}</div><div style="flex:1"><b>${esc(e.nom)}</b>${e.indice?' <span class="chip">ton indice</span>':''}<div class="aide" style="margin:2px 0 0">${details||'détails non détectés'}</div></div><button type="button" class="btn btn-vert" data-a="appliquer" data-i="${i}">Appliquer</button></div>`).join(''):`<div class="prop"><div style="flex:1">Équipe non reconnue dans le dictionnaire.<div class="aide" style="margin:2px 0 0">Détails détectés : ${details||'aucun'}</div></div><button type="button" class="btn" data-a="appliquer" data-i="-1">Appliquer</button></div>`}</div>
-  ${a.images.length?`<div class="eyebrow" style="margin-top:12px">Images similaires trouvées</div><div class="simil">${a.images.map(s=>`<a href="${esc(s.lien||s.src)}" target="_blank" rel="noopener" title="${esc(s.titre)}"><img src="${esc(s.src)}" alt="" loading="lazy"></a>`).join('')}</div>`:''}</div>`}
- catch(e){etat.lensHtml=`<div class="lens-res">Erreur : ${esc(e.message)}</div>`}rendre()}
-function appliquerLens(i){const a=etat.lens;if(!a)return;synchroForm();const f=etat.form;
- if(i>=0&&a.equipes[i]){const eq=trouverEquipe(a.equipes[i].nom);f.equipe=a.equipes[i].nom;if(eq)f.type=eq.type}
- if(a.saison)f.saison=a.saison;if(a.marque)f.marque=a.marque;if(a.version)f.version=a.version;if(a.categorie)f.categorie=a.categorie;if(a.couleur)f.couleur=a.couleur;if(a.numero){f.numero=a.numero;f.flocage=true}
- rendre();toast('Champs remplis : vérifie et complète.')}
-
+/* ===================== GOOGLE LENS (identification par photo, 1 recherche SerpApi) ===================== */
+function compresser(src,max=800,q=0.8){return new Promise((res,rej)=>{const im=new Image();im.onload=()=>{let w=im.naturalWidth,h=im.naturalHeight;const r=Math.min(1,max/Math.max(w,h));w=Math.max(1,Math.round(w*r));h=Math.max(1,Math.round(h*r));const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(im,0,0,w,h);res(c.toDataURL('image/jpeg',q))};im.onerror=()=>rej(new Error('Image illisible'));im.src=src})}
+const LENS_COULEURS=[['Rouge',/\b(rouge|red|rojo|rosso|rot|vermelho)\b/],['Bleu',/\b(bleu|blue|azul|blu|blau)\b/],['Blanc',/\b(blanc|white|blanco|bianco|weiss|branco)\b/],['Noir',/\b(noir|black|negro|nero|schwarz|preto)\b/],['Vert',/\b(vert|green|verde|grun)\b/],['Jaune',/\b(jaune|yellow|amarillo|giallo|gelb|amarelo)\b/],['Orange',/\b(orange|naranja|arancione|laranja)\b/],['Violet',/\b(violet|purple|morado|viola|lila|roxo)\b/],['Rose',/\b(rose|pink|rosa)\b/],['Gris',/\b(gris|grey|gray|grigio|grau|cinza)\b/],['Bordeaux',/\b(bordeaux|maroon|granate|claret|burgundy)\b/]];
+const LENS_CATS=[['Gardien',/\b(gardien|goalkeeper|gk|portero|portiere|torwart)\b/],['Extérieur',/\b(exterieur|away|visitante|trasferta|auswarts)\b/],['Third',/\b(third|troisieme|3rd|tercera|terza)\b/],['Domicile',/\b(domicile|home|local|casa|heim)\b/]];
+const MARQUES_SECOURS=['Nike','Adidas','Puma','Umbro','Kappa','Hummel','Le Coq Sportif','Macron','Joma','New Balance','Lotto','Reebok','Diadora','Castore','Errea','Uhlsport','Asics','Mizuno','Admiral','Patrick','Duarig'];
+const plusFrequent=o=>{const e=Object.entries(o).sort((a,b)=>b[1]-a[1]);return e.length?e[0][0]:''};
+function analyserLens(matches,indice){const eq={},saisons={},marques={},versions={},cats={},couleurs={},nums={};const images=[];
+ const ind=indice?trouverEquipe(indice):null;let nbIndice=0;
+ const lm=((typeof MARQUES!=='undefined'&&Array.isArray(MARQUES))?MARQUES:MARQUES_SECOURS).map(x=>typeof x==='string'?x:(x.nom||x.name||'')).filter(Boolean);
+ (matches||[]).forEach((m,ix)=>{const titre=String(m.title||m.titre||'');const source=String(m.source||'');const lien=m.link||m.lien||'';const texte=norm(titre+' '+source);const nn=' '+texte+' ';const poids=ix<5?3:ix<15?2:1;
+  const vus=new Set();for(const [k,e] of INDEX){if(k.length>=4&&!vus.has(e)&&nn.includes(' '+k+' ')){vus.add(e);eq[e.nom]=(eq[e.nom]||0)+poids;if(ind&&e===ind)nbIndice++}}
+  const re=/((?:19|20)\d{2})(?:\s*[-\/]\s*((?:19|20)?\d{2}))?/g;let s;while((s=re.exec(titre))!==null){const a=+s[1];if(a<1950||a>2035)continue;const b=s[2]?+(s[2].length===2?String(a).slice(0,2)+s[2]:s[2]):null;const cle=(b&&b===a+1)?`${a}-${b}`:String(a);saisons[cle]=(saisons[cle]||0)+poids}
+  lm.forEach(mq=>{const n=norm(mq);if(n&&nn.includes(' '+n+' '))marques[mq]=(marques[mq]||0)+poids});
+  if(/\b(match worn|worn|porte en match|match issue|player issue)\b/.test(texte))versions['Porté en match']=(versions['Porté en match']||0)+poids;else if(/\b(authentic|authentique|player version|vapor|adv|heat ?rdy|elite)\b/.test(texte))versions['Authentic']=(versions['Authentic']||0)+poids;else if(/\b(replica|stadium|fan|supporter)\b/.test(texte))versions['Replica']=(versions['Replica']||0)+poids;
+  for(const [c,rx] of LENS_CATS){if(rx.test(texte)){cats[c]=(cats[c]||0)+poids;break}}
+  for(const [c,rx] of LENS_COULEURS){if(rx.test(texte))couleurs[c]=(couleurs[c]||0)+poids}
+  const nm=texte.match(/\b(?:n|no|numero|number)\s*(\d{1,2})\b/);if(nm)nums[nm[1]]=(nums[nm[1]]||0)+poids;
+  const src=m.thumbnail||m.image||m.miniature||'';if(src&&images.length<8)images.push({src,lien,titre,source})});
+ if(ind)eq[ind.nom]=(eq[ind.nom]||0)+1000;
+ const equipes=Object.entries(eq).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([nom,score])=>({nom,score:score>=1000?score-1000:score}));
+ if(indice&&!ind)equipes.unshift({nom:indice,score:0});
+ return{equipes,saison:plusFrequent(saisons),marque:plusFrequent(marques),version:plusFrequent(versions),categorie:plusFrequent(cats),couleur:plusFrequent(couleurs),numero:plusFrequent(nums),nbIndice,indiceInconnu:!!(indice&&!ind),images}}
+async function identifierLens(){if(!params.relais){toast('Configure le relais dans Paramètres.');return}synchroForm();const f=etat.form;if(!f)return;
+ const src=f.photos&&f.photos[0]?await PHOTOS.get(f.photos[0]):null;if(!src){toast('Ajoute d\'abord une photo du maillot (bouton « Photos »).');return}
+ const el=$('#lens-indice');const indice=el?el.value.trim():'';
+ if(quota().utilise>=QUOTA_MAX){toast('Quota SerpApi du mois épuisé : identification impossible ce mois-ci.');return}
+ toast('Identification Google Lens en cours (1 recherche SerpApi)…',true);
+ try{const image=await compresser(src,800,0.8);const j=await relais('lens',Object.assign({image},indice?{indice}:{}));const matches=j.visual_matches||j.matches||j.resultats||[];const a=analyserLens(matches,indice);etat.lens=a;
+  const detail=[a.saison,a.marque,a.categorie,a.version,a.couleur,a.numero?'n° '+a.numero:''].filter(Boolean).join(' · ');
+  etat.lensHtml=`<div class="lens-res"><div class="eyebrow">Google Lens · ${matches.length} résultat${matches.length>1?'s':''} similaire${matches.length>1?'s':''}${j.cache?' · depuis le cache (0 SerpApi)':''}</div>`
+   +(a.indiceInconnu?`<div class="aide">Indice « ${esc(indice)} » inconnu du dictionnaire : il sera utilisé tel quel.</div>`:'')
+   +(a.equipes.length?`<div class="props">${a.equipes.slice(0,3).map((e,i)=>`<div class="prop"><div><b>${esc(e.nom)}</b> <span class="mini">${e.score?e.score+' indice'+(e.score>1?'s':''):'ton indice'}</span>${detail?`<br><span class="mini">${esc(detail)}</span>`:''}</div><button type="button" class="btn btn-vert" data-a="appliquer" data-i="${i}">${I('check')} Appliquer</button></div>`).join('')}</div>`:`<div class="aide">Aucune équipe reconnue dans les résultats. Réessaie avec un indice (ex. « Norvège ») ou une photo plus nette de l'écusson.</div>`)
+   +(a.images.length?`<div class="simil">${a.images.map(im=>`<a href="${esc(im.lien||'#')}" target="_blank" rel="noopener" title="${esc(im.titre)}"><img src="${esc(im.src)}" alt="" loading="lazy"></a>`).join('')}</div>`:'')
+   +`</div>`;
+  rendre();toast(a.equipes.length?'Propositions prêtes : clique sur « Appliquer ».':'Lens n\'a rien reconnu de sûr.')}
+ catch(e){toast('Lens : '+e.message)}}
+function appliquerLens(i){const a=etat.lens;if(!a)return;synchroForm();const f=etat.form;if(!f)return;const e=a.equipes[i];
+ if(e){f.equipe=e.nom;const eq=trouverEquipe(e.nom);if(eq)f.type=eq.type}
+ if(a.saison)f.saison=a.saison;if(a.marque)f.marque=a.marque;if(a.version)f.version=a.version;if(a.categorie)f.categorie=a.categorie;if(a.couleur)f.couleur=a.couleur;if(a.numero&&!f.numero){f.numero=a.numero;f.flocage=true}
+ rendre();toast('Proposition appliquée : vérifie les champs avant d\'enregistrer.')}
 /* ===================== SUGGESTIONS & NOTIFICATIONS ===================== */
-function suggestions(){const possede=new Set(collection.map(m=>norm(m.equipe)+'|'+norm(m.saison)));const equipesPossedees=new Set(collection.map(m=>norm(m.equipe)));const souhaits=new Set(wishlist.map(w=>norm(w.equipe)+'|'+norm(w.saison)));const out=[];
- const push=(s,groupe)=>{const k=norm(s.equipe)+'|'+norm(s.saison||'');if(possede.has(k)||souhaits.has(k))return;if(!s.saison&&equipesPossedees.has(norm(s.equipe)))return;if(out.some(o=>norm(o.equipe)+'|'+norm(o.saison||'')===k))return;out.push({...s,groupe})};
- for(const m of collection){const e=trouverEquipe(m.equipe);
-  CLASSIQUES.filter(c=>norm(c.equipe)===norm(m.equipe)).forEach(c=>push({...c,raison:`Parce que tu as déjà ${m.equipe}`},0));
-  if(m.joueur&&norm(m.joueur).length>=3){const nomJ=norm(m.joueur).split(' ').pop();CLASSIQUES.filter(c=>c.joueur&&norm(c.joueur).includes(nomJ)).forEach(c=>push({...c,raison:`Parce que tu as un maillot de ${m.joueur}`},0))}
-  if(e&&e.type==='club'){const sel=SELECTIONS.find(s=>norm(s.nom)===norm(e.pays));if(sel)push({equipe:sel.nom,saison:'',marque:'',citation:'La sélection, pour accompagner le club.',raison:`Le pays de ${e.nom}`},0);
-   CLUBS.filter(c=>c.pays===e.pays&&c.nom!==e.nom&&!equipesPossedees.has(norm(c.nom))).slice(0,3).forEach(c=>push({equipe:c.nom,saison:'',marque:'',citation:'Un rival historique pour compléter la série.',raison:`Même championnat que ${e.nom}`},0))}
-  if(e&&e.type==='selection')CLASSIQUES.filter(c=>(trouverEquipe(c.equipe)||{}).type==='selection').slice(0,4).forEach(c=>push({...c,raison:'Tu aimes les sélections'},0));
-  if(m.marque)CLASSIQUES.filter(c=>norm(c.marque)===norm(m.marque)).slice(0,3).forEach(c=>push({...c,raison:`Signé ${m.marque}, comme ton ${m.equipe}`},0))}
- CLASSIQUES.forEach(c=>push({...c,raison:'Un classique de la collection'},1));
- return out.map(s=>({s,k:s.groupe*1e10+hash(s.equipe+'|'+s.saison+'|'+etat.seed)})).sort((a,b)=>a.k-b.k).map(x=>x.s)}
-function notifications(){const n=[];const now=Date.now();
- if(!params.relais)n.push({id:'relais',titre:'Relais non configuré',texte:'Renseigne l\'adresse du relais Cloudflare et le code dans Paramètres pour activer Google Lens, les photos eBay et le relevé des prix.',page:'parametres'});
- if(!collection.length)n.push({id:'bienvenue',titre:'Bienvenue dans Mes Maillots',texte:'Ajoute ton premier maillot : une photo suffit, Google Lens t\'aide à l\'identifier.',page:'collection'});
- wishlist.filter(w=>w.statut==='suivi'&&w.alerte&&w.budget&&w.meilleurPrix!=null&&w.meilleurPrix<=w.budget).forEach(w=>n.push({id:'budget_'+w.id+'_'+Math.round(w.meilleurPrix),titre:`${w.equipe} dans ton budget`,texte:`Une annonce fiable à ${euros(w.meilleurPrix)} (budget ${euros(w.budget)}).`,page:'wishlist'}));
- const idees=suggestions().length;if(idees&&collection.length)n.push({id:'idees_'+idees,titre:`${idees} idées pour ta collection`,texte:'Découvre les suggestions sur l\'accueil.',page:'accueil'});
- if(collection.length&&(!params.dernierExport||now-params.dernierExport>14*864e5))n.push({id:'export_'+Math.floor(now/(7*864e5)),titre:'Pense à sauvegarder',texte:'Aucun export depuis plus de 14 jours. Paramètres → Exporter.',page:'parametres'});
- const q=quota();if(q.utilise>=QUOTA_MAX*0.8)n.push({id:'quota_'+q.mois,titre:'Quota SerpApi presque atteint',texte:`${q.utilise}/${QUOTA_MAX} recherches utilisées ce mois.`,page:'parametres'});
- return n}
+const K_LUS=(typeof K!=='undefined'&&K&&K.lus)||'mm_notifs_lus';
+function suggestions(){const cle=collection.map(m=>m.id).join(',')+'|'+wishlist.map(w=>w.id).join(',')+'|'+etat.seed;if(etat.suggCache&&etat.suggCache.cle===cle)return etat.suggCache.liste;
+ const possede=new Set(collection.map(m=>norm(m.equipe+'|'+m.saison)));wishlist.forEach(w=>possede.add(norm(w.equipe+'|'+w.saison)));
+ const eqPossedees=new Map();collection.forEach(m=>{const e=trouverEquipe(m.equipe);const n=e?e.nom:m.equipe;if(!eqPossedees.has(norm(n)))eqPossedees.set(norm(n),{e,m})});
+ const joueurs=new Map();collection.forEach(m=>{if(m.joueur)joueurs.set(norm(m.joueur),m)});
+ const marques=new Map();collection.forEach(m=>{if(m.marque)marques.set(norm(m.marque),m)});
+ const pays=new Set();collection.forEach(m=>{const e=trouverEquipe(m.equipe);if(e&&e.type==='club'&&e.pays)pays.add(norm(e.pays));if(e&&e.type==='selection')pays.add(norm(e.nom))});
+ const clubs=[...eqPossedees.values()].filter(v=>v.e&&v.e.type==='club'&&v.e.pays);
+ const nbSel=collection.filter(m=>(trouverEquipe(m.equipe)||{}).type==='selection').length;
+ const out=[];
+ for(const c of CLASSIQUES){if(possede.has(norm(c.equipe+'|'+c.saison)))continue;const e=trouverEquipe(c.equipe);const n=norm(e?e.nom:c.equipe);let raison='',groupe=1;
+  if(eqPossedees.has(n)){const x=eqPossedees.get(n).m;raison=`Parce que tu as déjà ${x.equipe} ${x.saison||''}`.trim();groupe=0}
+  else if(c.joueur&&joueurs.has(norm(c.joueur))){raison=`Parce que tu as un maillot de ${c.joueur}`;groupe=0}
+  else if(e&&e.type==='selection'&&pays.has(norm(e.nom))){raison=`Le pays de tes clubs : ${e.nom}`;groupe=0}
+  else if(e&&e.type==='club'&&e.pays&&clubs.some(v=>norm(v.e.pays)===norm(e.pays))){const v=clubs.find(v=>norm(v.e.pays)===norm(e.pays));raison=`Même championnat que ${v.e.nom}`}
+  else if(e&&e.type==='selection'&&nbSel>=2)raison='Tu aimes les sélections';
+  else if(c.marque&&marques.has(norm(c.marque))){const x=marques.get(norm(c.marque));raison=`Signé ${c.marque}, comme ton ${x.equipe}`}
+  else raison='Un classique de la collection';
+  out.push(Object.assign({},c,{raison,groupe}))}
+ const score=a=>a.groupe*1e10+Math.abs(hash(norm(a.equipe+'|'+a.saison+'|'+etat.seed)))%1e9;
+ out.sort((a,b)=>score(a)-score(b));etat.suggCache={cle,liste:out};return out}
+function notifications(){const lus=new Set(lire(K_LUS,[]));const n=[];
+ if(!params.relais)n.push({id:'relais',titre:'Configure le relais',texte:'Renseigne l\'adresse du relais Cloudflare et ton code dans Paramètres pour activer les prix, Google Lens et les photos.',page:'parametres'});
+ if(!collection.length)n.push({id:'bienvenue',titre:'Bienvenue !',texte:'Ajoute ton premier maillot avec le bouton « Ajouter ».',page:'collection'});
+ wishlist.filter(w=>w.statut==='suivi'&&w.alerte&&w.budget>0).forEach(w=>{const p=w.meilleurPrix||w.dernierPrix;if(p&&p<=w.budget)n.push({id:`budget_${w.id}_${Math.round(p)}`,titre:`${w.equipe} ${w.saison||''} dans ton budget`,texte:`Vu à ${euros(p)} (budget ${euros(w.budget)}).`,page:'wishlist'})});
+ const s=suggestions();if(s.length&&collection.length)n.push({id:'idees_'+s.length,titre:'Des idées pour ta collection',texte:`${s.length} maillots cultes suggérés d'après ta collection.`,page:'accueil'});
+ if(collection.length&&Date.now()-(params.dernierExport||0)>14*86400e3)n.push({id:'export_'+Math.floor(Date.now()/(7*86400e3)),titre:'Pense à sauvegarder',texte:'Aucune sauvegarde depuis plus de 14 jours : Paramètres → Exporter.',page:'parametres'});
+ const q=quota();if(q.utilise>=QUOTA_MAX*0.8)n.push({id:'quota_'+q.mois,titre:'Quota SerpApi presque atteint',texte:`${q.utilise}/${QUOTA_MAX} recherches utilisées ce mois-ci.`,page:'parametres'});
+ return n.map(x=>Object.assign(x,{lu:lus.has(x.id)}))}
+function marquerLu(ids){const lus=new Set(lire(K_LUS,[]));ids.forEach(i=>lus.add(i));ecrire(K_LUS,[...lus].slice(-200))}
 
 /* ===================== RENDU ===================== */
-const PAGES=[{id:'accueil',nom:'Accueil',ic:'home'},{id:'collection',nom:'Collection',ic:'shirt'},{id:'wishlist',nom:'Wishlist',ic:'heart'},{id:'parametres',nom:'Paramètres',ic:'sliders'}];
-function entete(){const lus=lire(K.notifs,[]);const nonLues=notifications().filter(n=>!lus.includes(n.id)).length;
- return `<header class="entete"><div class="entete-in"><div class="brand" data-a="page" data-p="accueil"><b>Mes Maillots</b><small>Collection privée</small></div>
- <button class="bell ${etat.panneau?'on':''}" data-a="notifs" title="Notifications">${I('bell')}${nonLues?'<i class="pt"></i>':''}</button>
- <nav class="nav">${PAGES.map(p=>`<button class="${etat.page===p.id?'on':''}" data-a="page" data-p="${p.id}">${p.nom}</button>`).join('')}</nav>
- <button class="btn btn-vert btn-ajouter" data-a="ajouter">${I('plus')} Ajouter</button></div></header>`}
-function barre(){const b=p=>`<button class="${etat.page===p.id?'on':''}" data-a="page" data-p="${p.id}">${I(p.ic)}${p.nom}</button>`;return `<nav class="barre">${b(PAGES[0])}${b(PAGES[1])}<button class="plus" data-a="ajouter">${I('plus')}</button>${b(PAGES[2])}${b(PAGES[3])}</nav>`}
-function datalists(){return `<datalist id="liste-equipes">${EQUIPES.map(e=>`<option value="${esc(e.nom)}">`).join('')}</datalist><datalist id="liste-marques">${MARQUES.map(m=>`<option value="${m}">`).join('')}</datalist>`}
-const badgeFlocage=x=>x.flocage?`<span class="floc">Flocage${x.joueur?' '+esc(x.joueur):''}${x.numero?' · n° '+esc(x.numero):''}</span>`:'';
+const PAGES_NAV=[['accueil','Accueil','home'],['collection','Collection','shirt'],['wishlist','Wishlist','heart'],['parametres','Paramètres','sliders']];
+const OPT_VERSION=['Replica','Authentic','Porté en match','Préparé pour match','Autre'];
+const OPT_CATEGORIE=['Domicile','Extérieur','Third','Gardien','Entraînement','Autre'];
+const OPT_COULEUR=['Rouge','Bleu','Blanc','Noir','Vert','Jaune','Orange','Violet','Rose','Gris','Bordeaux','Multicolore'];
+const OPT_TAILLE=['XS','S','M','L','XL','XXL','Enfant'];
+const STATUTS_WISH=[['suivi','Suivis'],['trouve','Trouvés'],['pause','En pause']];
+const opts=(l,v)=>{const liste=v&&!l.includes(v)?[v,...l]:l;return liste.map(x=>`<option value="${esc(x)}"${x===v?' selected':''}>${esc(x)}</option>`).join('')};
+const dateCourte=s=>{if(!s)return '';const d=new Date(s);return isNaN(d)?esc(String(s)):d.toLocaleDateString('fr-FR')};
+const nomComplet=x=>[x.equipe,x.saison].filter(Boolean).join(' ');
+const badgeFlocage=x=>x.flocage&&(x.joueur||x.numero)?`<span class="floc">${esc([x.joueur,x.numero?'n° '+x.numero:''].filter(Boolean).join(' '))}</span>`:'';
 
-function carteMaillot(m){const img=m.photos&&m.photos[0]?`<img data-ph="${esc(m.photos[0])}" alt="${esc(m.equipe)}">`:visuelEquipe(m.equipe,{texte:m.numero||saisonCourte(m.saison),c1:couleurHex(m.couleur),gq:requeteImage(m)});
- return `<article class="carte" data-a="fiche" data-id="${m.id}"><div class="img">${img}<span class="badge">${esc(m.version||'Replica')}</span><button class="heart ${m.favori?'on':''}" data-a="favori" data-id="${m.id}" title="Coup de cœur">${I('heart')}</button></div>
- <div class="corps"><h3>${esc(m.equipe||'Maillot')}</h3><div class="meta">${[m.saison,m.marque,m.categorie,m.couleur].filter(Boolean).map(esc).join(' · ')||'—'}</div>${m.flocage?`<div style="margin-top:6px">${badgeFlocage(m)}</div>`:''}
- <div class="bas"><span class="chip">${esc(m.etat||'État non renseigné')}</span><b>${euros(m.valeur!=null&&m.valeur!==''?m.valeur:m.prixAchat)}</b></div></div></article>`}
-function filtrer(){const q=norm(etat.recherche);return collection.filter(m=>{for(const k in etat.filtres){if(etat.filtres[k]&&String(m[k]||'').trim()!==etat.filtres[k])return false}if(!q)return true;return norm([m.equipe,m.marque,m.sponsor,m.joueur,m.saison,m.notes,m.couleur,m.version,m.categorie].join(' ')).includes(q)}).sort((a,b)=>(b.favori?1:0)-(a.favori?1:0)||(b.date||0)-(a.date||0))}
-function listeCollection(){if(!collection.length)return `<div class="vide">${visuelEquipe('',{c1:'#143d2f',c2:'#c6e36b',motif:'manches',texte:'1',web:false})}<h3>Ta collection est vide</h3><p>Ajoute ton premier maillot : une photo suffit, Google Lens t'aide à l'identifier.</p><button class="btn btn-vert" data-a="ajouter">${I('plus')} Ajouter un maillot</button></div>`;
- const l=filtrer();return `<div class="compte">${l.length} maillot${l.length>1?'s':''}</div>${l.length?`<div class="grille">${l.map(carteMaillot).join('')}</div>`:'<div class="vide">Aucun maillot ne correspond à cette recherche.</div>'}`}
-function pageCollection(){const n=collection.length;const investi=collection.reduce((s,m)=>s+(+m.prixAchat||0),0);const valeur=collection.reduce((s,m)=>s+(m.valeur!=null&&m.valeur!==''?+m.valeur:(+m.prixAchat||0)),0);const pv=valeur-investi;
- const distinct=f=>[...new Set(collection.map(m=>String(m[f]||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
- const sel=(nom,cle)=>`<select class="pilule" data-f="${cle}"><option value="">${nom}</option>${distinct(cle).map(o=>`<option ${etat.filtres[cle]===o?'selected':''} value="${esc(o)}">${esc(o)}</option>`).join('')}</select>`;
- return `<div class="titre-page"><div><div class="eyebrow">Collection</div><h1>Ma collection de maillots</h1><p>Toutes vos pièces, leur saison, leur état et leur valeur estimée — mises à jour à la main, à votre rythme.</p></div></div>
- <div class="kpis"><div class="kpi"><div class="lab">Maillots</div><div class="val">${n}</div></div><div class="kpi"><div class="lab">Investi</div><div class="val">${euros(investi)}</div></div><div class="kpi"><div class="lab">Valeur estimée</div><div class="val lime">${euros(valeur)}</div></div><div class="kpi"><div class="lab">Plus-value</div><div class="val ${pv<0?'rouge':''}">${pv>0?'+':''}${euros(pv)}</div><div class="sub">estimée – investie</div></div></div>
- <div class="avert">${I('info')}<div><b>Estimation indicative uniquement :</b> les valeurs s'appuient sur les annonces récentes de revente entre particuliers (eBay, Vinted, Leboncoin), jamais sur les prix des sites officiels. Ce ne sont ni des cotes officielles, ni des prix de marché en direct.</div></div>
- <div class="recherche">${I('search')}<input id="recherche" type="search" placeholder="Rechercher un club, une marque, un sponsor..." value="${esc(etat.recherche)}" autocomplete="off"></div>
- <div class="filtres">${sel('Clubs','equipe')}${sel('Saisons','saison')}${sel('Couleurs','couleur')}${sel('Types','categorie')}${Object.values(etat.filtres).some(Boolean)||etat.recherche?`<button class="btn" data-a="reset-filtres">${I('x')} Effacer</button>`:''}</div>
+function entete(){const nn=notifications().filter(n=>!n.lu).length;
+ return `<header class="entete"><div class="marque" data-a="page" data-p="accueil"><span class="logo-mm">${I('shirt')}</span><span><b>Mes Maillots</b><small>${esc(params.prenom?'Collection de '+params.prenom:'Ma collection')}</small></span></div><nav class="nav">${PAGES_NAV.map(([p,l,ic])=>`<button type="button" class="${etat.page===p?'on':''}" data-a="page" data-p="${p}">${I(ic)}<span>${l}</span></button>`).join('')}</nav><button type="button" class="bell" data-a="notifs" title="Notifications">${I('bell')}${nn?`<i>${nn}</i>`:''}</button></header>`}
+function barre(){return `<nav class="barre">${PAGES_NAV.map(([p,l,ic])=>`<button type="button" class="${etat.page===p?'on':''}" data-a="page" data-p="${p}">${I(ic)}<span>${l}</span></button>`).join('')}</nav>`}
+function datalists(){const eqs=[...new Set([...EQUIPES.map(e=>e.nom),...collection.map(m=>m.equipe),...wishlist.map(w=>w.equipe)].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
+ const lm=(typeof MARQUES!=='undefined'&&Array.isArray(MARQUES))?MARQUES.map(x=>typeof x==='string'?x:(x.nom||x.name||'')):MARQUES_SECOURS;const mq=[...new Set([...lm,...collection.map(m=>m.marque)].filter(Boolean))];
+ const an=new Date().getFullYear()+1;const sais=[];for(let a=an;a>=1960;a--)sais.push(`${a}-${a+1}`);
+ return `<datalist id="dl-equipes">${eqs.map(x=>`<option value="${esc(x)}">`).join('')}</datalist><datalist id="dl-marques">${mq.map(x=>`<option value="${esc(x)}">`).join('')}</datalist><datalist id="dl-saisons">${sais.map(x=>`<option value="${x}">`).join('')}</datalist>`}
+
+function visuelMaillot(m,o={}){if(m.photos&&m.photos.length)return `<div class="visu" data-photo="${m.photos[0]}"></div>`;return visuelEquipe(m.equipe,Object.assign({gq:requeteImage(m)},o))}
+function carteMaillot(m){const pv=m.valeur>0&&m.prixAchat>0?m.valeur-m.prixAchat:null;
+ return `<article class="carte" data-a="fiche" data-id="${m.id}"><div class="img">${visuelMaillot(m)}<button type="button" class="heart${m.favori?' on':''}" data-a="favori" data-id="${m.id}" title="Favori">${I('heart')}</button>${m.categorie?`<span class="badge">${esc(m.categorie)}</span>`:''}</div>
+ <div class="corps"><b>${esc(m.equipe)}</b><div class="meta">${esc([m.saison,m.marque,m.version].filter(Boolean).join(' · '))}</div><div class="chips">${badgeFlocage(m)}${m.taille?`<span class="chip">${esc(m.taille)}</span>`:''}</div>
+ <div class="bas"><span>${m.prixAchat>0?'Acheté '+euros(m.prixAchat):'Prix d\'achat non renseigné'}</span><b>${m.valeur>0?'≈ '+euros(m.valeur):''}</b>${pv!=null?`<span class="${pv>=0?'plus':'moins'}">${pv>=0?'+':''}${euros(pv)}</span>`:''}</div></div></article>`}
+function filtrer(){const q=norm(etat.recherche||'');const f=etat.filtres;return collection.filter(m=>{if(f.equipe&&m.equipe!==f.equipe)return false;if(f.saison&&m.saison!==f.saison)return false;if(f.couleur&&m.couleur!==f.couleur)return false;if(f.categorie&&m.categorie!==f.categorie)return false;
+ if(q){const t=norm([m.equipe,m.saison,m.marque,m.joueur,m.numero,m.notes,m.version,m.categorie].filter(Boolean).join(' '));if(!t.includes(q))return false}return true}).sort((a,b)=>(b.favori?1:0)-(a.favori?1:0)||(b.date||0)-(a.date||0))}
+function listeCollection(){const l=filtrer();if(!collection.length)return `<div class="vide">${I('shirt')}<p>Ta collection est vide.</p><button type="button" class="btn btn-vert" data-a="ajouter">${I('plus')} Ajouter un maillot</button></div>`;if(!l.length)return `<div class="vide"><p>Aucun maillot ne correspond.</p><button type="button" class="btn" data-a="reset-filtres">Effacer les filtres</button></div>`;return `<div class="grille">${l.map(carteMaillot).join('')}</div>`}
+function pageCollection(){const nb=collection.length;const investi=collection.reduce((s,m)=>s+(Number(m.prixAchat)||0),0);const valeur=collection.reduce((s,m)=>s+(Number(m.valeur)||Number(m.prixAchat)||0),0);const pv=valeur-investi;
+ const sel=(f,l,lab)=>`<select class="pilule" data-f="${f}"><option value="">${lab}</option>${[...new Set(l.filter(Boolean))].sort().map(x=>`<option value="${esc(x)}"${etat.filtres[f]===x?' selected':''}>${esc(x)}</option>`).join('')}</select>`;
+ return `<div class="titre-page"><div><div class="eyebrow">Collection</div><h1>${nb} maillot${nb>1?'s':''}</h1></div><button type="button" class="btn btn-vert" data-a="ajouter">${I('plus')} Ajouter</button></div>
+ <div class="kpis"><div class="kpi"><small>Maillots</small><b>${nb}</b></div><div class="kpi"><small>Investi</small><b>${euros(investi)}</b></div><div class="kpi"><small>Valeur estimée</small><b>${euros(valeur)}</b></div><div class="kpi"><small>Plus-value</small><b class="${pv>=0?'plus':'moins'}">${pv>=0?'+':''}${euros(pv)}</b></div></div>
+ <div class="avert">${I('info')}<span><b>Estimation indicative uniquement :</b> la valeur estimée s'appuie uniquement sur les annonces de revente entre particuliers (eBay, Vinted, Leboncoin) ; les prix neufs des boutiques (Google) sont affichés à titre de repère et n'entrent pas dans le calcul. Ce ne sont ni des cotes officielles, ni des prix de marché en direct.</span></div>
+ <div class="recherche">${I('search')}<input id="recherche" type="search" placeholder="Rechercher (équipe, joueur, saison, marque…)" value="${esc(etat.recherche||'')}"></div>
+ <div class="filtres">${sel('equipe',collection.map(m=>m.equipe),'Toutes les équipes')}${sel('saison',collection.map(m=>m.saison),'Toutes les saisons')}${sel('couleur',collection.map(m=>m.couleur),'Toutes les couleurs')}${sel('categorie',collection.map(m=>m.categorie),'Toutes les catégories')}${Object.values(etat.filtres).some(Boolean)||etat.recherche?`<button type="button" class="btn" data-a="reset-filtres">${I('x')} Effacer</button>`:''}</div>
  <div id="zone-liste">${listeCollection()}</div>`}
 
-function carteWish(w){const meta=[w.version||'Replica',w.marque,w.couleur,w.taille].filter(Boolean).map(esc).join(' · ');let alerte='';
- if(w.statut==='suivi')alerte=!w.alerte?'Alerte désactivée : les prix restent relevés, sans notification.':w.budget?`<b>Alerte active :</b> prévenu dès qu'une annonce passe sous ${euros(w.budget)}.`:'Indique un budget (Modifier) pour activer l\'alerte.';
- let releve=w.prixRef==null?'Prix pas encore relevé : la première vérification fixera le prix de référence.':`Dernier relevé : ${dateFr(w.dernierReleve)}${w.dernierSource?' · '+esc(w.dernierSource):''}.`;
- if(w.prixRef>0&&w.dernierPrix!=null){const d=Math.round((w.dernierPrix-w.prixRef)/w.prixRef*100);if(d<=-5)releve+=` <b>En baisse de ${-d} %</b> depuis le premier relevé.`;else if(d>=5)releve+=` En hausse de ${d} % depuis le premier relevé.`}
- const nbAnn=w.releve&&w.releve.annonces?w.releve.annonces.length:0;
- const liens=nbAnn?`<div style="margin-top:8px"><button class="btn" style="padding:6px 12px;font-size:12px" data-a="wish-annonces" data-id="${w.id}">${I('search')} Voir les annonces (${nbAnn})</button></div>`:(w.dernierReleve?'<div class="aide" style="margin:4px 0 0">Les liens vers les annonces seront disponibles au prochain relevé.</div>':'');
- const meilleure=w.meilleureAnnonce?`<div class="wnote">Meilleure annonce fiable : <a href="${esc(w.meilleureAnnonce.lien)}" target="_blank" rel="noopener">${euros(w.meilleureAnnonce.prix)} sur ${esc(w.meilleureAnnonce.source)} ${I('ext')}</a></div>`:'';
- const actions=w.statut==='suivi'?`<button class="btn" data-a="wish-modifier" data-id="${w.id}">${I('edit')} Modifier</button><button class="btn btn-vert" data-a="wish-trouve" data-id="${w.id}">${I('bag')} Je l'ai trouvé</button><button class="btn btn-ic" data-a="verifier-un" data-id="${w.id}" title="Vérifier ce maillot maintenant">${I('refresh')}</button>`
-  :w.statut==='trouve'?`<button class="btn btn-vert" data-a="wish-vers-collection" data-id="${w.id}">${I('plus')} Ajouter à la collection</button><button class="btn" data-a="wish-reprendre" data-id="${w.id}">${I('refresh')} Reprendre le suivi</button>`
-  :`<button class="btn" data-a="wish-reprendre" data-id="${w.id}">${I('refresh')} Reprendre le suivi</button><button class="btn" data-a="wish-modifier" data-id="${w.id}">${I('edit')} Modifier</button>`;
- const classique=CLASSIQUES.find(c=>norm(c.equipe)===norm(w.equipe)&&c.saison&&norm(w.saison).includes(norm(c.saison).slice(0,4)));const gq=w.imageUrl?'':requeteImage(w);
- return `<article class="wcarte"><div class="wtete"><div class="wvisu grand">${visuelEquipe(w.equipe,{url:w.imageUrl,wiki:classique?classique.wiki:undefined,texte:saisonCourte(w.saison),c1:couleurHex(w.couleur),gq})}</div><div><h3>${esc(w.equipe)}</h3><div class="meta">${esc(w.saison||'Saison non précisée')}</div><div class="meta">${meta}</div>${w.flocage?`<div style="margin-top:6px">${badgeFlocage(w)}</div>`:''}</div>
- <button class="wbell ${w.alerte?'':'off'}" data-a="wish-alerte" data-id="${w.id}" title="${w.alerte?'Désactiver l\'alerte':'Activer l\'alerte'}">${I('bell')}</button></div>
- ${w.statut!=='suivi'?`<div style="margin-top:10px"><span class="chip">${w.statut==='trouve'?'Trouvé':'Abandonné'}</span></div>`:''}
- <div class="wsep"></div><div class="wprix"><div><div class="lab">Budget</div><div class="val">${euros(w.budget)}</div></div><div><div class="lab">Prix de référence</div><div class="val">${w.prixRef==null?'<span class="arelever">à relever</span>':euros(w.prixRef)}</div></div><div><div class="lab">Dernier prix</div><div class="val">${euros(w.dernierPrix)}</div></div></div>
- ${alerte?`<div class="wnote">${alerte}</div>`:''}<div class="wnote">${releve}${liens}</div>${meilleure}${w.notes?`<div class="wnote"><b>Notes.</b> ${esc(w.notes)}</div>`:''}
- <div class="wactions">${actions}${btnPhoto(gq)}<button class="btn btn-ic btn-rouge" data-a="wish-supprimer" data-id="${w.id}" title="Supprimer" style="margin-left:auto">${I('trash')}</button></div></article>`}
-function pageWishlist(){const statuts=[['suivi','Suivis'],['trouve','Trouvés'],['abandonne','Abandonnés'],['tous','Tous']];const l=wishlist.filter(w=>etat.statutWish==='tous'||w.statut===etat.statutWish).sort((a,b)=>(b.date||0)-(a.date||0));
- const mot={suivi:'surveillés',trouve:'trouvés',abandonne:'abandonnés',tous:'au total'}[etat.statutWish];
- return `<div class="titre-page"><div><div class="eyebrow">Veille</div><h1>Ma wishlist</h1><p>Les maillots que vous aimeriez avoir. Leurs prix sont relevés sur les annonces de revente entre particuliers : eBay, Vinted et Leboncoin.</p></div>
- <div class="wactions" style="margin:0"><button class="btn" data-a="verifier">${I('refresh')} Vérifier les prix</button><button class="btn btn-vert" data-a="ajouter-wish">${I('plus')} Ajouter une envie</button></div></div>
- <div class="aide">« Vérifier les prix » interroge eBay + Vinted/Leboncoin (6 maillots par passage, 1 à 2 recherches SerpApi chacun). La veille automatique quotidienne n'interroge qu'eBay, gratuitement. Les prix restent indicatifs.</div>
- <div class="chips">${statuts.map(([id,nom])=>`<button class="${etat.statutWish===id?'on':''}" data-a="wish-statut" data-s="${id}">${nom}</button>`).join('')}</div>
- <div class="compte">${l.length} maillot${l.length>1?'s':''} · ${mot}</div>
- ${l.length?`<div class="wgrille">${l.map(carteWish).join('')}</div>`:`<div class="vide"><h3>Rien ici pour le moment</h3><p>Ajoute une envie : l'appli relèvera ses prix sur les annonces entre particuliers.</p><button class="btn btn-vert" data-a="ajouter-wish">${I('plus')} Ajouter une envie</button></div>`}`}
+function carteWish(w){const tend=w.prixRef&&w.dernierPrix?w.dernierPrix-w.prixRef:null;const bas=w.meilleurPrix||w.dernierPrix;const ok=w.budget>0&&bas&&bas<=w.budget;
+ const visu=w.imageUrl?visuelEquipe(w.equipe,{url:w.imageUrl}):visuelEquipe(w.equipe,{gq:requeteImage(w)});
+ return `<article class="wcarte${ok?' ok':''}"><div class="wtete"><div class="wvisu">${visu}</div><div><b>${esc(w.equipe)}</b><div class="meta">${esc([w.saison,w.marque,w.categorie,w.version].filter(Boolean).join(' · '))}</div><div class="chips">${badgeFlocage(w)}${w.budget>0?`<span class="chip">Budget ${euros(w.budget)}</span>`:''}${ok?'<span class="chip ok">Dans ton budget</span>':''}</div></div>
+ ${w.statut==='suivi'?`<button type="button" class="wbell${w.alerte?' on':''}" data-a="wish-alerte" data-id="${w.id}" title="${w.alerte?'Alerte active':'Alerte coupée'}">${I('bell')}</button>`:''}</div>
+ <div class="wsep"></div>
+ <div class="wprix">${w.dernierPrix?`<div><small>Médiane occasion</small><b>${euros(w.dernierPrix)}</b>${tend!=null&&Math.abs(tend)>=1?`<span class="${tend<=0?'plus':'moins'}">${tend>0?'+':''}${euros(tend)}</span>`:''}</div><div><small>Moins cher</small><b>${euros(bas)}</b></div><div><small>Annonces</small><b>${w.nbAnnonces||0}</b></div>`:`<div class="aide" style="margin:0">Pas encore de relevé${w.statut==='suivi'&&params.relais?' : clique sur « Vérifier »':''}.</div>`}</div>
+ ${w.dernierReleve?`<div class="wnote">Relevé du ${dateFr(w.dernierReleve)} · ${esc(w.dernierSource||'')}</div>`:''}
+ ${w.meilleureAnnonce?`<a class="ann" style="margin-top:8px" href="${esc(w.meilleureAnnonce.lien||'#')}" target="_blank" rel="noopener"><span class="t">${esc(w.meilleureAnnonce.source||'')} · ${esc(w.meilleureAnnonce.titre||'')}</span><b>${euros(w.meilleureAnnonce.prix)}</b>${I('ext')}</a>`:''}
+ ${w.notes?`<div class="wnote">${esc(w.notes)}</div>`:''}
+ <div class="wactions">${w.statut==='suivi'?`<button type="button" class="btn btn-vert" data-a="verifier-un" data-id="${w.id}">${I('refresh')} Vérifier</button>`:''}${w.releve?`<button type="button" class="btn" data-a="wish-annonces" data-id="${w.id}">${I('search')} Annonces</button>`:''}<button type="button" class="btn btn-ic" data-a="wish-modifier" data-id="${w.id}" title="Modifier">${I('edit')}</button>${btnPhoto(w.imageUrl?'':requeteImage(w))}
+ ${w.statut==='suivi'?`<button type="button" class="btn" data-a="wish-trouve" data-id="${w.id}">${I('check')} Trouvé</button><button type="button" class="btn" data-a="wish-pause" data-id="${w.id}">Pause</button>`:`<button type="button" class="btn" data-a="wish-reprendre" data-id="${w.id}">${I('refresh')} Reprendre</button>`}
+ ${w.statut==='trouve'?`<button type="button" class="btn btn-vert" data-a="wish-vers-collection" data-id="${w.id}">${I('plus')} Dans la collection</button>`:''}<button type="button" class="btn btn-ic btn-rouge" data-a="wish-supprimer" data-id="${w.id}" title="Supprimer">${I('trash')}</button></div></article>`}
+function pageWishlist(){const l=wishlist.filter(w=>(w.statut||'suivi')===etat.statutWish);const nbSuivi=wishlist.filter(w=>w.statut==='suivi').length;
+ return `<div class="titre-page"><div><div class="eyebrow">Wishlist</div><h1>${nbSuivi} maillot${nbSuivi>1?'s':''} suivi${nbSuivi>1?'s':''}</h1></div><div class="actions">${nbSuivi&&params.relais?`<button type="button" class="btn" data-a="verifier">${I('refresh')} Vérifier les prix</button>`:''}<button type="button" class="btn btn-vert" data-a="ajouter-wish">${I('plus')} Ajouter</button></div></div>
+ <p class="aide">« Vérifier les prix » interroge eBay + Vinted/Leboncoin (6 maillots par passage, 1 recherche SerpApi chacun). La veille automatique quotidienne n'interroge qu'eBay, gratuitement. Les prix neufs des boutiques (Google) s'obtiennent avec « Compléter avec Google » dans les annonces d'un maillot ; ils ne servent que de repère. Les prix restent indicatifs.</p>
+ <div class="filtres">${STATUTS_WISH.map(([s,l2])=>`<button type="button" class="pilule-btn${etat.statutWish===s?' on':''}" data-a="wish-onglet" data-s="${s}">${l2} <small>${wishlist.filter(w=>(w.statut||'suivi')===s).length}</small></button>`).join('')}</div>
+ ${l.length?`<div class="wgrille">${l.map(carteWish).join('')}</div>`:`<div class="vide">${I('heart')}<p>${etat.statutWish==='suivi'?'Aucun maillot suivi. Ajoute ceux que tu cherches, ou pioche dans les idées de l\'accueil.':'Rien ici pour le moment.'}</p></div>`}`}
 
-function carteSugg(s,i){const e=trouverEquipe(s.equipe);const gq=requeteImage(s);return `<article class="carte sugg-carte"><div class="img">${visuelEquipe(s.equipe,{force:s.force,c1:s.c1,c2:s.c2,motif:s.motif,wiki:s.wiki,texte:saisonCourte(s.saison),gq})}${s.saison?`<span class="badge">${esc(s.saison)}</span>`:''}</div>
- <div class="corps"><h3>${esc(s.equipe)}${s.joueur?` <small>· ${esc(s.joueur)}</small>`:''}</h3><div class="meta">${[s.saison,s.marque,e?(e.type==='club'?e.pays:'Sélection nationale'):''].filter(Boolean).map(esc).join(' · ')}</div>${s.citation?`<div class="cit">« ${esc(s.citation)} »</div>`:''}<div class="raison">${esc(s.raison)}</div>
- <div class="wactions"><button class="btn" data-a="sugg-wish" data-i="${i}">${I('heart')} Wishlist</button><button class="btn btn-vert" data-a="sugg-col" data-i="${i}">${I('plus')} Je l'ai</button>${btnPhoto(gq,'margin-left:auto')}</div></div></article>`}
-function pageAccueil(){const sugg=suggestions().slice(0,6);etat.suggCache=sugg;const suivis=wishlist.filter(w=>w.statut==='suivi');const derniers=[...collection].sort((a,b)=>(b.date||0)-(a.date||0)).slice(0,4);const salut=new Date().getHours()<18?'Bonjour':'Bonsoir';
- return `<div class="hero"><div class="eyebrow" style="color:var(--lime)">${salut}${params.prenom?' '+esc(params.prenom):''}</div><h1>Des maillots qui pourraient vous plaire</h1><p>Des idées calculées à partir de votre collection : mêmes clubs, mêmes pays, mêmes joueurs, mêmes équipementiers et quelques classiques incontournables. Sans intelligence artificielle, sans publicité.</p>
- <div class="stats"><span>${collection.length} maillot${collection.length>1?'s':''} en collection</span><span>${suivis.length} souhait${suivis.length>1?'s':''} surveillé${suivis.length>1?'s':''}</span><span>${sugg.length} idées du moment</span></div><div class="deco">${svgMaillot('#ffffff','#ffffff','uni')}</div></div>
- <div class="section"><h2>Suggestions pour vous</h2><button class="btn" data-a="idees">${I('refresh')} Nouvelles idées</button></div><div class="sugg">${sugg.map(carteSugg).join('')}</div>
- ${derniers.length?`<div class="section"><h2>Derniers ajouts</h2><button class="btn" data-a="page" data-p="collection">Voir la collection</button></div><div class="grille">${derniers.map(carteMaillot).join('')}</div>`:''}
- ${suivis.length?`<div class="section"><h2>Veille en cours</h2><button class="btn" data-a="page" data-p="wishlist">Voir la wishlist</button></div><div class="wgrille">${suivis.slice(0,2).map(carteWish).join('')}</div>`:''}`}
+function carteSugg(s,i){const visu=visuelEquipe(s.equipe,{force:true,c1:s.c1,c2:s.c2,motif:s.motif,wiki:s.wiki,gq:requeteImage(s)});
+ return `<article class="sugg"><div class="img">${visu}</div><div class="corps"><div class="raison">${esc(s.raison)}</div><b>${esc(s.equipe)} ${esc(s.saison)}</b><div class="meta">${esc([s.marque,s.joueur].filter(Boolean).join(' · '))}</div>${s.citation?`<p class="cit">${esc(s.citation)}</p>`:''}<div class="wactions"><button type="button" class="btn" data-a="sugg-wish" data-i="${i}">${I('heart')} Wishlist</button><button type="button" class="btn btn-vert" data-a="sugg-col" data-i="${i}">${I('plus')} Je l'ai</button>${btnPhoto(requeteImage(s))}</div></div></article>`}
+function pageAccueil(){const sug=suggestions().slice(0,6);const recents=[...collection].sort((a,b)=>(b.date||0)-(a.date||0)).slice(0,4);const nbSuivi=wishlist.filter(w=>w.statut==='suivi').length;const valeur=collection.reduce((s,m)=>s+(Number(m.valeur)||Number(m.prixAchat)||0),0);const h=new Date().getHours();const salut=h<18?'Bonjour':'Bonsoir';
+ return `<section class="hero"><div class="deco">${svgMaillot('#1f5a44','#c9a227','bande')}</div><div class="eyebrow">${salut}${params.prenom?' '+esc(params.prenom):''}</div><h1>Ta collection, <em>comme une discothèque</em> de maillots.</h1><div class="stats"><div><b>${collection.length}</b><small>maillots</small></div><div><b>${euros(valeur)}</b><small>valeur estimée</small></div><div><b>${nbSuivi}</b><small>suivis en wishlist</small></div></div><div class="wactions"><button type="button" class="btn btn-vert" data-a="ajouter">${I('plus')} Ajouter un maillot</button><button type="button" class="btn" data-a="page" data-p="wishlist">${I('heart')} Wishlist</button></div></section>
+ ${recents.length?`<section class="section"><div class="titre-page"><h2>Derniers ajouts</h2><button type="button" class="btn" data-a="page" data-p="collection">Tout voir ${I('droite')}</button></div><div class="grille">${recents.map(carteMaillot).join('')}</div></section>`:''}
+ <section class="section"><div class="titre-page"><div><div class="eyebrow">Maillots cultes</div><h2>Idées pour ta collection</h2></div><button type="button" class="btn" data-a="idees">${I('refresh')} D'autres idées</button></div>${sug.length?`<div class="grille sugg-grille">${sug.map((s,i)=>carteSugg(s,i)).join('')}</div>`:'<p class="aide">Tu as déjà tous nos classiques !</p>'}</section>`}
 
-function pageParametres(){const q=quota();const pct=Math.min(100,Math.round(q.utilise/QUOTA_MAX*100));const nbImg=Object.keys(IMG).length;
- return `<div class="titre-page"><div><div class="eyebrow">Réglages</div><h1>Paramètres</h1><p>Le relais Cloudflare sert uniquement à interroger Google Lens, eBay et les annonces de revente (Vinted, Leboncoin via Google). Aucune intelligence artificielle n'est utilisée.</p></div></div>
- <div class="carte-param"><h2>Profil</h2><div class="form"><label>Prénom<input name="prenom" value="${esc(params.prenom)}" placeholder="Pour le bonjour de l'accueil"></label></div></div>
- <div class="carte-param"><h2>Relais Cloudflare</h2><div class="form"><label class="plein">Adresse du relais<input name="relais" value="${esc(params.relais)}" placeholder="https://maillots-relais.xxxx.workers.dev"></label><label class="plein">Code secret<input name="code" type="password" value="${esc(params.code)}" placeholder="Le CODE_SECRET du Worker"></label>
- <label class="plein">Adresse du relais images (facultatif : laisse vide, le relais principal fournit les photos eBay)<input name="relaisImages" value="${esc(params.relaisImages||'')}" placeholder="Laisser vide"></label>
- <label class="coche plein"><input type="checkbox" name="photosWeb" ${params.photosWeb!==false?'checked':''}> Photos eBay automatiques (gratuites, sans SerpApi, mémorisées définitivement)</label>
- <label class="coche plein"><input type="checkbox" name="ebay" ${params.ebay!==false?'checked':''}> Estimer et relever les prix avec eBay (gratuit, sans SerpApi)</label>
- <label class="coche plein"><input type="checkbox" name="vinted" ${params.vinted!==false?'checked':''}> Chercher aussi Vinted et Leboncoin via Google (1 à 2 recherches SerpApi par estimation ou relevé manuel)</label>
- <label class="coche plein"><input type="checkbox" name="veille" ${params.veille!==false?'checked':''}> Veille automatique : un relevé eBay par jour à l'ouverture (6 maillots maximum, sans SerpApi)</label></div>
- <div class="wactions"><button class="btn btn-vert" data-a="sauver-params">${I('check')} Enregistrer</button><button class="btn" data-a="tester">${I('refresh')} Tester la connexion</button></div><div id="res-test"></div></div>
- <div class="carte-param"><h2>Quota SerpApi</h2><div class="aide" style="margin:0">${q.utilise} / ${QUOTA_MAX} recherches utilisées en ${q.mois} (compteur local, approximatif). Google Lens coûte 1 recherche par identification ; Vinted/Leboncoin 1 à 2 par estimation ou relevé manuel. Les photos eBay (${nbImg} mémorisées), Wikipédia, les prix eBay et la veille automatique ne coûtent rien.</div><div class="quota"><i style="width:${pct}%"></i></div></div>
- <div class="carte-param"><h2>Sauvegarde</h2><div class="aide" style="margin:0 0 12px">L'export contient la collection, la wishlist et les photos (sans le code secret). Dernier export : ${params.dernierExport?dateFr(params.dernierExport):'jamais'}.</div><div class="wactions"><button class="btn btn-vert" data-a="exporter">${I('download')} Exporter</button><label class="btn">${I('upload')} Importer<input type="file" id="fichier-import" accept="application/json,.json" hidden></label></div></div>
- <div class="carte-param"><h2>Application</h2><div class="aide" style="margin:0 0 12px">Mes Maillots v${VERSION} · ${collection.length} maillots · ${wishlist.length} souhaits · ${EQUIPES.length} équipes et ${CLASSIQUES.length} maillots cultes dans le dictionnaire.</div><div class="wactions"><button class="btn" data-a="maj">${I('refresh')} Forcer la mise à jour de l'appli</button><button class="btn" data-a="vider-wiki">${I('trash')} Vider le cache Wikipédia</button><button class="btn" data-a="vider-img">${I('trash')} Vider les photos eBay mémorisées</button></div></div>`}
+function pageParametres(){const q=quota();const pct=Math.min(100,Math.round(q.utilise/QUOTA_MAX*100));const ck=(n,l,v)=>`<label class="case"><input type="checkbox" name="${n}"${v?' checked':''}><span>${l}</span></label>`;
+ return `<div class="titre-page"><div><div class="eyebrow">Réglages</div><h1>Paramètres</h1></div></div>
+ <div class="carte-param"><h3>Toi</h3><div class="form"><label>Prénom<input name="prenom" value="${esc(params.prenom||'')}" placeholder="Pour le bonjour de l'accueil"></label></div></div>
+ <div class="carte-param"><h3>Relais Cloudflare</h3><p class="aide">Le relais garde tes clés (SerpApi, eBay) à l'abri : rien n'est stocké dans l'appli.</p><div class="form"><label>Adresse du relais<input name="relais" value="${esc(params.relais||'')}" placeholder="https://maillots-relais.xxx.workers.dev" inputmode="url"></label><label>Code secret<input name="code" type="password" value="${esc(params.code||'')}" placeholder="Le CODE_SECRET du Worker"></label><label>Relais photos (facultatif, sinon le même)<input name="relaisImages" value="${esc(params.relaisImages||'')}" placeholder="Laisser vide"></label>
+ ${ck('photosWeb','Photos de maillots via eBay (gratuit, sans SerpApi)',params.photosWeb!==false)}${ck('ebay','Prix d\'occasion eBay (gratuit)',params.ebay!==false)}${ck('vinted','Prix d\'occasion Vinted / Leboncoin via Google (1 recherche SerpApi, gardée 24 h)',params.vinted!==false)}${ck('google','Chercher aussi les boutiques / prix neuf via Google (1 recherche SerpApi, gardée 7 jours)',params.google!==false)}${ck('veille','Veille automatique quotidienne de la wishlist (eBay seulement, gratuit)',params.veille!==false)}
+ <div class="wactions"><button type="button" class="btn btn-vert" data-a="sauver-params">${I('check')} Enregistrer</button><button type="button" class="btn" data-a="tester">${I('refresh')} Tester la connexion</button></div><div id="res-test" class="aide"></div></div></div>
+ <div class="carte-param"><h3>Quota SerpApi</h3><div class="quota"><div class="jauge"><i style="width:${pct}%"></i></div><div><b>${q.utilise} / ${QUOTA_MAX}</b> recherches ce mois-ci (${q.mois})</div></div><p class="aide">Chaque identification Google Lens, chaque recherche Vinted/Leboncoin (gardée 24 h) et chaque recherche de boutiques Google (gardée 7 jours) compte pour 1. Une estimation complète d'un maillot peut donc coûter jusqu'à 2 recherches. eBay et les photos sont gratuits. Le compteur est approximatif : la référence reste ton tableau de bord SerpApi.</p></div>
+ <div class="carte-param"><h3>Sauvegarde</h3><p class="aide">${params.dernierExport?'Dernière sauvegarde : '+dateFr(params.dernierExport)+'.':'Aucune sauvegarde pour l\'instant.'} Le fichier contient collection, wishlist, photos et réglages.</p><div class="wactions"><button type="button" class="btn btn-vert" data-a="exporter">${I('download')} Exporter</button><label class="btn">${I('upload')} Importer<input id="fichier-import" type="file" accept="application/json,.json" hidden></label></div></div>
+ <div class="carte-param"><h3>Application</h3><p class="aide">Mes Maillots v${VERSION} · fonctionne hors ligne après la première ouverture.</p><div class="wactions"><button type="button" class="btn" data-a="maj">${I('refresh')} Forcer la mise à jour de l'appli</button><button type="button" class="btn" data-a="vider-wiki">Vider le cache Wikipédia</button><button type="button" class="btn" data-a="vider-img">Vider le cache des photos web</button></div></div>`}
 
-/* ---- fiche, formulaires ---- */
-function ficheMaillot(m){const e=trouverEquipe(m.equipe);const ph=m.photos||[];if(etat.carrousel>=ph.length)etat.carrousel=0;const gq=ph.length?'':requeteImage(m);
- const visu=ph.length?`<img data-ph="${esc(ph[etat.carrousel])}" alt="">${ph.length>1?`<button class="fl g" data-a="carrousel" data-d="-1">${I('gauche')}</button><button class="fl d" data-a="carrousel" data-d="1">${I('droite')}</button><div class="pts">${ph.map((_,i)=>`<i class="${i===etat.carrousel?'on':''}"></i>`).join('')}</div>`:''}`:visuelEquipe(m.equipe,{texte:m.numero||saisonCourte(m.saison),c1:couleurHex(m.couleur),gq});
- const ligne=(lab,val)=>val?`<div><span class="lab">${lab}</span>${esc(val)}</div>`:'';
- const flocage=m.flocage?([m.joueur,m.numero?'n° '+m.numero:''].filter(Boolean).join(' · ')||'Oui'):'Non';
- return `<div class="modal"><button class="btn btn-ic fermer" data-a="fermer">${I('x')}</button>
- <div class="carrousel">${visu}<span class="badge">${esc(m.version||'Replica')}</span><button class="heart ${m.favori?'on':''}" data-a="favori" data-id="${m.id}">${I('heart')}</button></div>
- <div class="ftete"><div class="wvisu">${visuelEquipe(m.equipe)}</div><div><div class="eyebrow">${e?(e.type==='club'?esc(e.pays):'Sélection nationale'):'Maillot'}</div><h2>${esc(m.equipe)}</h2><div class="meta">${[m.saison,m.marque,m.categorie].filter(Boolean).map(esc).join(' · ')}</div></div></div>
- <div class="det">${ligne('Couleur',m.couleur)}${ligne('Sponsor',m.sponsor)}${ligne('Taille',m.taille)}${ligne('État',m.etat)}${ligne('Flocage',flocage)}${ligne('Prix d\'achat',m.prixAchat!=null&&m.prixAchat!==''?euros(m.prixAchat):'')}${ligne('Valeur estimée',m.valeur!=null&&m.valeur!==''?euros(m.valeur)+(m.dateEstimation?' (le '+dateFr(m.dateEstimation).slice(0,10)+')':''):'')}${ligne('Ajouté le',m.date?dateFr(m.date).slice(0,10):'')}</div>
- ${m.notes?`<div class="wnote" style="margin-top:0"><b>Notes.</b> ${esc(m.notes)}</div>`:''}
- ${m.releve?blocEstimation(m.releve,'m'+m.id,{titre:'Estimation détaillée',actions:actionsVinted(m.id,m.releve)}):''}
- ${m.similaires&&m.similaires.length?`<div class="eyebrow" style="margin-top:16px">Vu sur le web (Google Lens)</div><div class="simil">${m.similaires.map(s=>`<a href="${esc(s.lien||s.src)}" target="_blank" rel="noopener"><img src="${esc(s.src)}" alt="" loading="lazy"></a>`).join('')}</div>`:''}
- <div class="wactions" style="margin-top:20px"><button class="btn" data-a="modifier" data-id="${m.id}">${I('edit')} Modifier</button><button class="btn" data-a="estimer-fiche" data-id="${m.id}">${I('refresh')} ${m.releve?'Nouvelle estimation':'Estimer la valeur'}</button>${btnPhoto(gq)}<button class="btn btn-ic btn-rouge" data-a="supprimer" data-id="${m.id}" style="margin-left:auto">${I('trash')}</button></div></div>`}
-const opts=(liste,v)=>liste.map(o=>`<option ${o===v?'selected':''}>${esc(o)}</option>`).join('');
-const champsFlocage=(f,ex)=>`<label>Flocage (nom ou numéro au dos)<select name="flocage">${opts(['Non','Oui'],f.flocage?'Oui':'Non')}</select></label>${f.flocage?`<label>Nom du joueur<input name="joueur" value="${esc(f.joueur)}" placeholder="${ex||'Zidane'}"></label><label>Numéro<input name="numero" value="${esc(f.numero)}" placeholder="10" inputmode="numeric"></label>`:''}`;
-function formMaillot(){const f=etat.form;
- return `<div class="modal"><button class="btn btn-ic fermer" data-a="fermer">${I('x')}</button><div class="eyebrow">${f.id?'Modifier':'Nouveau maillot'}</div><h2>${f.id?esc(f.equipe):'Ajouter un maillot'}</h2>
- <div class="photos-edit">${f.photos.map((p,i)=>`<div class="ph"><img ${p.data?`src="${p.data}"`:`data-ph="${esc(p.id)}"`} alt=""><button type="button" class="x" data-a="photo-suppr" data-i="${i}">${I('x')}</button></div>`).join('')}${f.photos.length<4?`<label class="ph" title="Ajouter une photo">${I('camera')}<span>Photo</span><input type="file" accept="image/*" id="fichier-photo" hidden multiple></label>`:''}</div>
- <div class="wactions" style="align-items:center;margin-top:0"><button type="button" class="btn" data-a="lens" ${f.photos.length?'':'disabled'}>${I('lens')} Identifier avec Google Lens</button><input id="lens-indice" value="${esc(f.indice||'')}" placeholder="Indice (facultatif) : Norvège, PSG…" autocomplete="off" style="flex:1;min-width:170px;border:1px solid var(--ligne);border-radius:12px;padding:9px 12px;font:inherit;font-size:14px;background:#fafaf7"></div>
- <div class="aide" style="margin:4px 0 0">1 recherche SerpApi · résultat gardé 7 jours. L'indice (pays ou club) met en tête les résultats qui le mentionnent, dans toutes les langues (Norway, Norge, Norwegen…), et sert à lire saison, marque et couleur sur les bons résultats.</div>
- <div id="lens-res">${etat.lensHtml||''}</div>
+function ficheMaillot(m){const ph=m.photos||[];const n=Math.max(1,ph.length);const i=((etat.carrousel%n)+n)%n;const q=requeteImage(m);
+ const visu=ph.length?`<div class="carrousel"><div class="visu grand" data-photo="${ph[i]}"></div>${ph.length>1?`<button type="button" class="fl g" data-a="carrousel" data-d="-1">${I('gauche')}</button><button type="button" class="fl d" data-a="carrousel" data-d="1">${I('droite')}</button><div class="pts">${ph.map((_,k)=>`<i class="${k===i?'on':''}"></i>`).join('')}</div>`:''}</div>`:`<div class="carrousel">${visuelEquipe(m.equipe,{gq:q})}${btnPhoto(q,'position:absolute;right:10px;bottom:10px;z-index:2')}</div>`;
+ const det=[['Saison',m.saison],['Marque',m.marque],['Catégorie',m.categorie],['Version',m.version],['Couleur',m.couleur],['Taille',m.taille],['Flocage',m.flocage?([m.joueur,m.numero?'n° '+m.numero:''].filter(Boolean).join(' ')||'Oui'):'Non'],['Acheté le',dateCourte(m.dateAchat)],['Prix d\'achat',m.prixAchat>0?euros(m.prixAchat):''],['Valeur estimée (occasion)',m.valeur>0?euros(m.valeur)+(m.dateEstimation?' · '+dateFr(m.dateEstimation):''):'']].filter(x=>x[1]);
+ return `<div class="ftete"><div><div class="eyebrow">${m.type==='selection'?'Sélection nationale':'Club'}</div><h2>${esc(m.equipe)}</h2></div><button type="button" class="heart${m.favori?' on':''}" data-a="favori" data-id="${m.id}" title="Favori">${I('heart')}</button></div>${visu}
+ <div class="det">${det.map(([k,v])=>`<div><small>${k}</small><b>${esc(String(v))}</b></div>`).join('')}</div>${m.notes?`<p class="wnote">${esc(m.notes)}</p>`:''}
+ <div class="wactions"><button type="button" class="btn btn-vert" data-a="estimer-fiche" data-id="${m.id}">${I('search')} ${m.releve?'Nouvelle estimation':'Estimer la valeur'}</button><button type="button" class="btn" data-a="modifier" data-id="${m.id}">${I('edit')} Modifier</button><button type="button" class="btn btn-rouge" data-a="supprimer" data-id="${m.id}">${I('trash')} Supprimer</button></div>
+ ${blocEstimation(m.releve,'m'+m.id,{titre:'Estimation détaillée',actions:actionsVinted(m.id,m.releve)+actionsGoogle(m.id)})}`}
+
+function champsFlocage(f){return `<label>Joueur<input name="joueur" value="${esc(String(f.joueur||''))}" placeholder="Ex. Zidane"></label><label>Numéro<input name="numero" value="${esc(String(f.numero||''))}" inputmode="numeric" placeholder="10"></label>`}
+function formMaillot(f){const ph=f.photos||[];
+ return `<div class="ftete"><h2>${f.id?'Modifier le maillot':'Nouveau maillot'}</h2></div>
+ <div class="photos-edit">${ph.map((p,i)=>`<div class="ph"><div class="visu" data-photo="${p}"></div><button type="button" class="fermer petit" data-a="photo-suppr" data-i="${i}" title="Retirer cette photo">${I('x')}</button></div>`).join('')}${ph.length<4?`<label class="ph ajout" title="Ajouter des photos (4 maximum)">${I('camera')}<span>Photos</span><input id="fichier-photo" type="file" accept="image/*" multiple hidden></label>`:''}</div>
+ <div class="lens"><div class="eyebrow">Identifier par la photo</div><div class="form ligne"><label>Indice (facultatif)<input id="lens-indice" value="${esc(etat.lensIndice||'')}" placeholder="Ex. Norvège, OM, Ajax…"></label><button type="button" class="btn" data-a="lens"${ph.length?'':' disabled'} title="Analyse la 1re photo avec Google Lens (1 recherche SerpApi)">${I('lens')} Google Lens</button></div>${ph.length?'':'<p class="aide">Ajoute d\'abord une photo pour utiliser Google Lens.</p>'}<div id="lens-res">${etat.lensHtml||''}</div></div>
  <form id="f-maillot" class="form" onsubmit="return false">
-  <label>Type<select name="type">${opts(['Club','Sélection'],f.type==='selection'?'Sélection':'Club')}</select></label>
-  <label>Équipe<input name="equipe" list="liste-equipes" value="${esc(f.equipe)}" placeholder="Olympique de Marseille, France…" autocomplete="off"></label>
-  <label>Saison<input name="saison" value="${esc(f.saison)}" placeholder="1998-1999"></label>
-  <label>Marque<input name="marque" list="liste-marques" value="${esc(f.marque)}" placeholder="Adidas" autocomplete="off"></label>
-  <label>Version<select name="version">${opts(VERSIONS,f.version||'Replica')}</select></label>
-  <label>Type de maillot<select name="categorie"><option value="">—</option>${opts(CATEGORIES,f.categorie)}</select></label>
-  <label>Couleur dominante<select name="couleur"><option value="">—</option>${opts(COULEURS.map(c=>c[0]),f.couleur)}</select></label>
-  <label>Sponsor<input name="sponsor" value="${esc(f.sponsor)}" placeholder="Opel, Fly Emirates…"></label>
-  <label>Taille<select name="taille"><option value="">—</option>${opts(TAILLES,f.taille)}</select></label>
-  <label>État<select name="etat"><option value="">—</option>${opts(ETATS,f.etat)}</select></label>
-  ${champsFlocage(f)}
-  <label>Prix d'achat (€)<input name="prixAchat" type="number" min="0" step="1" value="${esc(f.prixAchat)}"></label>
-  <label>Valeur estimée (€)<input name="valeur" type="number" min="0" step="1" value="${esc(f.valeur)}"></label>
-  <div class="plein"><button type="button" class="btn" data-a="estimer">${I('refresh')} Estimer la valeur via les annonces (eBay, Vinted, Leboncoin)</button>${f.releve?blocEstimation(f.releve,'form',{actions:actionsVinted('form',f.releve)}):''}</div>
-  <label class="plein">Notes<textarea name="notes" placeholder="Provenance, anecdote, défauts…">${esc(f.notes)}</textarea></label>
-  <label class="coche plein"><input type="checkbox" name="favori" ${f.favori?'checked':''}> Coup de cœur</label>
- </form>
- <div class="wactions" style="justify-content:flex-end"><button class="btn" data-a="fermer">Annuler</button><button class="btn btn-vert" data-a="enregistrer">${I('check')} Enregistrer</button></div>${datalists()}</div>`}
-function formWish(){const f=etat.form;
- return `<div class="modal"><button class="btn btn-ic fermer" data-a="fermer">${I('x')}</button><div class="eyebrow">Wishlist</div><h2>${f.id?'Modifier l\'envie':'Ajouter une envie'}</h2>
- <form id="f-wish" class="form" onsubmit="return false">
-  <label>Type<select name="type">${opts(['Club','Sélection'],f.type==='selection'?'Sélection':'Club')}</select></label>
-  <label>Équipe<input name="equipe" list="liste-equipes" value="${esc(f.equipe)}" placeholder="Real Madrid, France…" autocomplete="off"></label>
-  <label>Saison<input name="saison" value="${esc(f.saison)}" placeholder="2012"></label>
-  <label>Marque<input name="marque" list="liste-marques" value="${esc(f.marque)}" placeholder="Adidas" autocomplete="off"></label>
-  <label>Version<select name="version">${opts(VERSIONS,f.version||'Replica')}</select></label>
-  <label>Couleur<select name="couleur"><option value="">—</option>${opts(COULEURS.map(c=>c[0]),f.couleur)}</select></label>
-  <label>Taille<select name="taille"><option value="">—</option>${opts(TAILLES,f.taille)}</select></label>
-  <label>Budget maximum (€)<input name="budget" type="number" min="0" step="1" value="${esc(f.budget)}" placeholder="130"></label>
-  ${champsFlocage(f,'Ronaldo')}
-  <label class="plein">Lien d'une image (facultatif, remplace la photo eBay)<input name="imageUrl" type="url" value="${esc(f.imageUrl)}" placeholder="https://… (clic droit sur une photo du web → Copier l'adresse de l'image)"></label>
-  ${f.id?`<label>Statut<select name="statut">${[['suivi','Suivi'],['trouve','Trouvé'],['abandonne','Abandonné']].map(([v,n])=>`<option value="${v}" ${f.statut===v?'selected':''}>${n}</option>`).join('')}</select></label>`:''}
-  <label class="plein">Notes<textarea name="notes" placeholder="Taille recherchée, détails…">${esc(f.notes)}</textarea></label>
-  <label class="coche plein"><input type="checkbox" name="alerte" ${f.alerte!==false?'checked':''}> M'alerter quand une annonce fiable passe sous le budget</label>
- </form>
- <div class="wactions" style="justify-content:flex-end"><button class="btn" data-a="fermer">Annuler</button><button class="btn btn-vert" data-a="wish-enregistrer">${I('check')} Enregistrer</button></div>${datalists()}</div>`}
-function modalAnnoncesWish(w){const r=w.releve;
- return `<div class="modal"><button class="btn btn-ic fermer" data-a="fermer">${I('x')}</button><div class="eyebrow">Wishlist · annonces relevées</div><h2>${esc(w.equipe)}</h2><div class="meta">${[w.saison,w.marque,w.version].filter(Boolean).map(esc).join(' · ')}${w.flocage&&w.joueur?' · flocage '+esc(w.joueur):''}</div>
- ${r?blocEstimation(r,'w'+w.id,{titre:'Dernier relevé',actions:`<button type="button" class="btn btn-vert" data-a="verifier-un" data-id="${w.id}">${I('refresh')} Nouveau relevé</button>${actionsVinted('wish:'+w.id,r)}`}):`<div class="aide" style="margin:14px 0">Aucun relevé avec liens pour le moment : lance un nouveau relevé.</div><div class="wactions"><button type="button" class="btn btn-vert" data-a="verifier-un" data-id="${w.id}">${I('refresh')} Nouveau relevé</button></div>`}
- <div class="aide" style="margin-top:12px">Chaque ligne ouvre l'annonce dans un nouvel onglet. Les annonces grisées sont écartées du calcul (mot suspect dans le titre). Les prix sont indicatifs.</div></div>`}
-function panneauNotifs(){const n=notifications();const lus=lire(K.notifs,[]);
- return `<div class="panneau"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h3 style="font-size:18px">Notifications</h3>${n.length?`<button class="btn" style="padding:6px 12px;font-size:12px" data-a="notif-lu-tout">Tout marquer lu</button>`:''}</div>
- ${n.length?n.map(x=>`<div class="notif ${lus.includes(x.id)?'lu':''}" data-a="notif" data-id="${esc(x.id)}" data-p="${x.page||''}"><b>${esc(x.titre)}</b><span>${esc(x.texte)}</span></div>`).join(''):'<div class="aide">Rien de nouveau.</div>'}</div>`}
+ <label>Équipe *<input name="equipe" list="dl-equipes" required value="${esc(f.equipe||'')}" placeholder="Ex. Olympique de Marseille"></label>
+ <div class="ligne"><label>Type<select name="type"><option value="club"${f.type!=='selection'?' selected':''}>Club</option><option value="selection"${f.type==='selection'?' selected':''}>Sélection nationale</option></select></label><label>Saison<input name="saison" list="dl-saisons" value="${esc(f.saison||'')}" placeholder="Ex. 1998-1999"></label></div>
+ <div class="ligne"><label>Marque<input name="marque" list="dl-marques" value="${esc(f.marque||'')}" placeholder="Ex. Adidas"></label><label>Catégorie<select name="categorie"><option value="">—</option>${opts(OPT_CATEGORIE,f.categorie||'')}</select></label></div>
+ <div class="ligne trois"><label>Version<select name="version">${opts(OPT_VERSION,f.version||'Replica')}</select></label><label>Couleur<select name="couleur"><option value="">—</option>${opts(OPT_COULEUR,f.couleur||'')}</select></label><label>Taille<select name="taille"><option value="">—</option>${opts(OPT_TAILLE,f.taille||'')}</select></label></div>
+ <div class="ligne${f.flocage?' trois':''}"><label>Flocage<select name="flocage"><option value="non"${f.flocage?'':' selected'}>Non</option><option value="oui"${f.flocage?' selected':''}>Oui (joueur / numéro)</option></select></label>${f.flocage?champsFlocage(f):''}</div>
+ <div class="ligne"><label>Prix d'achat (€)<input name="prixAchat" type="number" min="0" step="0.01" value="${f.prixAchat>0?f.prixAchat:''}" placeholder="Ex. 45"></label><label>Date d'achat<input name="dateAchat" type="date" value="${esc(f.dateAchat||'')}"></label></div>
+ <label>Notes<textarea name="notes" placeholder="État, provenance, anecdote…">${esc(f.notes||'')}</textarea></label>
+ <label class="case"><input type="checkbox" name="favori"${f.favori?' checked':''}><span>Favori</span></label></form>
+ <div class="estim-form"><div class="wactions"><button type="button" class="btn" data-a="estimer">${I('search')} Estimer la valeur via les annonces (eBay, Vinted, Leboncoin${params.google!==false?' + boutiques Google':''})</button></div>${f.valeur>0?`<p class="aide">Valeur estimée (occasion) : <b>${euros(f.valeur)}</b>${f.dateEstimation?' · '+dateFr(f.dateEstimation):''}</p>`:''}${blocEstimation(f.releve,'form',{actions:actionsVinted('form',f.releve)+actionsGoogle('form')})}</div>
+ <div class="wactions" style="margin-top:16px"><button type="button" class="btn btn-vert" data-a="enregistrer">${I('check')} Enregistrer</button><button type="button" class="btn" data-a="fermer">Annuler</button></div>`}
+function formWish(f){return `<div class="ftete"><h2>${f.id?'Modifier le souhait':'Nouveau souhait'}</h2></div><form id="f-wish" class="form" onsubmit="return false">
+ <label>Équipe *<input name="equipe" list="dl-equipes" required value="${esc(f.equipe||'')}" placeholder="Ex. Ajax Amsterdam"></label>
+ <div class="ligne"><label>Saison<input name="saison" list="dl-saisons" value="${esc(f.saison||'')}" placeholder="Ex. 1994-1995"></label><label>Marque<input name="marque" list="dl-marques" value="${esc(f.marque||'')}"></label></div>
+ <div class="ligne"><label>Catégorie<select name="categorie"><option value="">—</option>${opts(OPT_CATEGORIE,f.categorie||'')}</select></label><label>Version<select name="version">${opts(OPT_VERSION,f.version||'Replica')}</select></label></div>
+ <div class="ligne"><label>Flocage<select name="flocage"><option value="non"${f.flocage?'':' selected'}>Non / peu importe</option><option value="oui"${f.flocage?' selected':''}>Oui (joueur / numéro)</option></select></label><label>Budget maxi (€)<input name="budget" type="number" min="0" step="1" value="${f.budget>0?f.budget:''}" placeholder="Ex. 80"></label></div>
+ ${f.flocage?`<div class="ligne">${champsFlocage(f)}</div>`:''}
+ <label>Lien d'une image (facultatif)<input name="imageUrl" value="${esc(f.imageUrl||'')}" placeholder="https://… (sinon photo eBay automatique)" inputmode="url"></label>
+ <label>Notes<textarea name="notes">${esc(f.notes||'')}</textarea></label>
+ <label class="case"><input type="checkbox" name="alerte"${f.alerte!==false?' checked':''}><span>M'alerter quand une annonce passe sous le budget</span></label></form>
+ <div class="wactions" style="margin-top:16px"><button type="button" class="btn btn-vert" data-a="wish-enregistrer">${I('check')} Enregistrer</button><button type="button" class="btn" data-a="fermer">Annuler</button></div>`}
+function modalAnnoncesWish(w){const r=w.releve;const hist=(w.historique||[]).slice(-10).reverse();
+ return `<div class="ftete"><div><div class="eyebrow">Wishlist</div><h2>${esc(nomComplet(w))}</h2></div></div>
+ ${blocEstimation(r,'w'+w.id,{titre:'Dernier relevé',actions:`<button type="button" class="btn btn-vert" data-a="verifier-un" data-id="${w.id}">${I('refresh')} Nouveau relevé</button>`+actionsVinted('wish:'+w.id,r)+actionsGoogle('wish:'+w.id)})||'<p class="aide">Pas encore de relevé pour ce maillot.</p>'}
+ ${hist.length>1?`<div class="estim"><div class="eyebrow">Historique (médiane · moins cher)</div>${hist.map(h=>`<div class="src"><span>${dateFr(h.date)}</span><b style="margin-left:auto">${euros(h.prix)}</b><span>· ${euros(h.min)}</span></div>`).join('')}</div>`:''}`}
+function panneauNotifs(){const n=notifications();return `<aside class="panneau"><div class="ftete"><h3>Notifications</h3><div>${n.some(x=>!x.lu)?`<button type="button" class="btn" data-a="notif-lu-tout">Tout marquer lu</button>`:''}<button type="button" class="fermer" data-a="notifs" title="Fermer">${I('x')}</button></div></div>${n.length?n.map(x=>`<button type="button" class="notif${x.lu?' lu':''}" data-a="notif" data-id="${esc(x.id)}" data-p="${x.page}"><b>${esc(x.titre)}</b><span>${esc(x.texte)}</span></button>`).join(''):'<p class="aide">Rien de nouveau.</p>'}</aside>`}
 
-function rendre(){const pages={accueil:pageAccueil,collection:pageCollection,wishlist:pageWishlist,parametres:pageParametres};
- root.innerHTML=entete()+`<main>${(pages[etat.page]||pageAccueil)()}</main>`+barre()+(etat.panneau?panneauNotifs():'')+`<div id="modal">${etat.modal?`<div class="voile">${etat.modal()}</div>`:''}</div>`;
- document.body.style.overflow=etat.modal?'hidden':'';chargerPhotos();chargerVisuels()}
-function chargerPhotos(){$$('img[data-ph]').forEach(async img=>{const id=img.dataset.ph;img.removeAttribute('data-ph');const d=await PHOTOS.get(id);if(d)img.src=d;else img.style.display='none'})}
-let toastT;function toast(msg,fixe){let t=$('#toast');if(!t){t=document.createElement('div');t.id='toast';t.className='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(toastT);if(!fixe)toastT=setTimeout(()=>t.style.display='none',3500)}
-function fermerModal(){etat.modal=null;etat.form=null;etat.lens=null;etat.lensHtml='';etat.srcOuverte='';rendre()}
-function lireForm(sel){const f=$(sel);const o={};if(!f)return o;new FormData(f).forEach((v,k)=>o[k]=typeof v==='string'?v.trim():v);f.querySelectorAll('input[type=checkbox]').forEach(c=>o[c.name]=c.checked);return o}
-function synchroForm(){const f=$('#f-maillot')||$('#f-wish');if(!f||!etat.form)return;const v=lireForm('#'+f.id);if(v.type)v.type=v.type==='Sélection'?'selection':'club';if('flocage' in v)v.flocage=v.flocage==='Oui';Object.assign(etat.form,v);const ind=$('#lens-indice');if(ind)etat.form.indice=ind.value.trim()}
-function ouvrirFormMaillot(m={}){etat.lensHtml='';etat.lens=null;etat.panneau=false;etat.srcOuverte='';
- etat.form={id:m.id||null,date:m.date||null,wishId:m.wishId||null,type:m.type||'club',equipe:m.equipe||'',saison:m.saison||'',marque:m.marque||'',version:m.version||'Replica',categorie:m.categorie||'',couleur:m.couleur||'',sponsor:m.sponsor||'',taille:m.taille||'',etat:m.etat||'',flocage:m.flocage!=null?!!m.flocage:!!(m.joueur||m.numero),joueur:m.joueur||'',numero:m.numero||'',prixAchat:m.prixAchat??'',valeur:m.valeur??'',notes:m.notes||'',favori:!!m.favori,photos:(m.photos||[]).map(id=>({id})),similaires:m.similaires||[],releve:m.releve||null,indice:'',photosSupprimees:[]};
- etat.modal=()=>formMaillot();rendre()}
-function ouvrirFormWish(w={}){etat.panneau=false;etat.form={id:w.id||null,type:w.type||'club',equipe:w.equipe||'',saison:w.saison||'',marque:w.marque||'',version:w.version||'Replica',couleur:w.couleur||'',taille:w.taille||'',budget:w.budget??'',alerte:w.alerte!==false,statut:w.statut||'suivi',notes:w.notes||'',imageUrl:w.imageUrl||'',flocage:w.flocage!=null?!!w.flocage:!!(w.joueur||w.numero),joueur:w.joueur||'',numero:w.numero||''};etat.modal=()=>formWish();rendre()}
-const depuisWish=w=>({equipe:w.equipe,type:w.type,saison:w.saison,marque:w.marque,version:w.version,couleur:w.couleur,taille:w.taille,flocage:!!w.flocage,joueur:w.flocage?(w.joueur||''):'',numero:w.flocage?(w.numero||''):'',prixAchat:w.meilleurPrix??w.dernierPrix??'',valeur:w.dernierPrix??'',releve:w.releve||null,wishId:w.id});
-async function enregistrerMaillot(){const v=lireForm('#f-maillot');if(!v.equipe){toast('Indique au moins l\'équipe.');return}const f=etat.form;const photos=[];
- for(const p of f.photos){if(p.id)photos.push(p.id);else if(p.data)photos.push(await PHOTOS.put(p.data))}for(const id of f.photosSupprimees||[])await PHOTOS.del(id);
- const floc=v.flocage==='Oui';
- const m={id:f.id||uid(),date:f.date||Date.now(),...v,type:v.type==='Sélection'?'selection':'club',flocage:floc,joueur:floc?(v.joueur||''):'',numero:floc?(v.numero||''):'',photos,similaires:f.similaires||[],releve:f.releve||null,prixAchat:v.prixAchat===''?null:+v.prixAchat,valeur:v.valeur===''?null:+v.valeur,favori:!!v.favori};
- if(f.id){const old=collection.find(x=>x.id===f.id);if(old&&old.dateEstimation)m.dateEstimation=old.dateEstimation}
- const i=collection.findIndex(x=>x.id===m.id);if(i>=0)collection[i]=m;else collection.unshift(m);
- if(f.wishId){const w=wishlist.find(x=>x.id===f.wishId);if(w&&w.statut!=='trouve'){w.statut='trouve';w.dateTrouve=Date.now()}}
- sauver();fermerModal();if(i<0)etat.page='collection';rendre();toast(i>=0?'Maillot modifié.':'Maillot ajouté à la collection.')}
-function enregistrerWish(){const v=lireForm('#f-wish');if(!v.equipe){toast('Indique au moins l\'équipe.');return}const f=etat.form;const old=wishlist.find(x=>x.id===f.id)||{};const floc=v.flocage==='Oui';
- const w={...old,id:f.id||uid(),date:old.date||Date.now(),equipe:v.equipe,type:v.type==='Sélection'?'selection':'club',saison:v.saison,marque:v.marque,version:v.version,couleur:v.couleur,taille:v.taille,budget:v.budget===''?null:+v.budget,alerte:!!v.alerte,statut:v.statut||old.statut||'suivi',notes:v.notes,imageUrl:v.imageUrl||'',flocage:floc,joueur:floc?(v.joueur||''):'',numero:floc?(v.numero||''):''};
- const i=wishlist.findIndex(x=>x.id===w.id);if(i>=0)wishlist[i]=w;else wishlist.unshift(w);sauver();fermerModal();etat.page='wishlist';etat.statutWish=w.statut;rendre();toast(i>=0?'Envie modifiée.':'Envie ajoutée : lance « Vérifier les prix » quand tu veux.')}
-async function ajouterPhotos(files){synchroForm();for(const file of files){if(etat.form.photos.length>=4)break;try{etat.form.photos.push({data:await compresser(file,1200,0.85)})}catch(e){toast('Photo illisible.')}}rendre()}
-function sauverParams(afficher){const g=n=>$(`main [name="${n}"]`);if(!g('relais'))return;params.prenom=g('prenom').value.trim();params.relais=g('relais').value.trim();params.code=g('code').value.trim();params.relaisImages=g('relaisImages')?g('relaisImages').value.trim():'';params.photosWeb=g('photosWeb')?g('photosWeb').checked:true;params.ebay=g('ebay').checked;params.vinted=g('vinted')?g('vinted').checked:true;params.veille=g('veille').checked;sauver();if(afficher){toast('Paramètres enregistrés.');rendre()}}
-async function testerImages(){const base=urlImages();if(!base)return 'Photos eBay : indique d\'abord l\'adresse du relais';
- try{const r=await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:params.code,action:'test'})});const j=await r.json().catch(()=>({}));if(!r.ok||j.ok===false)return 'Photos eBay : '+(j.erreur||('erreur '+r.status));
-  if(!j.ebay)return `Photos eBay indisponibles : eBay non configuré sur le relais (v${j.version})`;return `Photos eBay OK (v${j.version}${j.kv?'':', KV PHOTOS non lié : les photos ne seront pas mémorisées côté relais'})`}catch(e){return 'Photos eBay : relais injoignable'}}
-async function exporter(){const photos=await PHOTOS.tout();const data={app:'mes-maillots',version:VERSION,date:new Date().toISOString(),collection,wishlist,params:{...params,code:''},photos};
- const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));a.download=`mes-maillots-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);params.dernierExport=Date.now();sauver();rendre();toast('Export téléchargé.')}
-async function importer(file){const d=JSON.parse(await file.text());if(!Array.isArray(d.collection))throw new Error('fichier non reconnu');
- if(!confirm(`Importer ${d.collection.length} maillots et ${(d.wishlist||[]).length} souhaits ? Cela remplace les données actuelles de l'appli.`))return;
- if(d.photos)for(const [id,data] of Object.entries(d.photos))await PHOTOS.putId(id,data);
- collection=d.collection;wishlist=d.wishlist||[];if(d.params)params={...params,...d.params,code:params.code||d.params.code||''};sauver();await migrer();rendre();toast('Import terminé.')}
+function rendre(){if(!root)return;const md0=$('.modal');const sc=md0?md0.scrollTop:0;let page='';
+ switch(etat.page){case 'collection':page=pageCollection();break;case 'wishlist':page=pageWishlist();break;case 'parametres':page=pageParametres();break;default:page=pageAccueil()}
+ let modal='';if(etat.modal){let inner='';
+  if(etat.modal==='fiche'){const m=collection.find(x=>String(x.id)===String(etat.ficheId));if(m)inner=ficheMaillot(m);else etat.modal=null}
+  else if(etat.modal==='form')inner=formMaillot(etat.form||{});else if(etat.modal==='wish-form')inner=formWish(etat.form||{});
+  else if(etat.modal==='wish-annonces'){const w=wishlist.find(x=>String(x.id)===String(etat.wishId));if(w)inner=modalAnnoncesWish(w);else etat.modal=null}
+  if(inner)modal=`<div class="voile" data-a="fermer-voile"><div class="modal" role="dialog"><button type="button" class="fermer" data-a="fermer" title="Fermer">${I('x')}</button>${inner}</div></div>`}
+ root.innerHTML=`${entete()}<main class="${etat.page}">${page}</main>${barre()}${etat.panneau?panneauNotifs():''}${modal}${datalists()}`;
+ document.body.classList.toggle('bloque',!!(etat.modal||etat.panneau));const md=$('.modal');if(md&&sc)md.scrollTop=sc;chargerPhotos();chargerVisuels()}
+function chargerPhotos(){$$('[data-photo]').forEach(async el=>{const id=el.dataset.photo;el.removeAttribute('data-photo');try{const src=await PHOTOS.get(id);if(src&&el.isConnected){const img=new Image();img.alt='';img.className='visu-img photo';img.src=src;el.innerHTML='';el.appendChild(img)}}catch(e){}})}
+let toastTimer=0;
+function toast(msg,fixe){let t=$('#toast-mm');if(!t){t=document.createElement('div');t.id='toast-mm';t.className='toast';document.body.appendChild(t)}t.textContent=msg;t.classList.add('show');clearTimeout(toastTimer);if(!fixe)toastTimer=setTimeout(()=>t.classList.remove('show'),3800)}
+function fermerModal(){etat.modal=null;etat.form=null;etat.lens=null;etat.lensHtml='';etat.lensIndice='';etat.carrousel=0;etat.srcOuverte='';rendre()}
+function lireForm(sel){const o={};const f=$(sel);if(!f)return o;f.querySelectorAll('[name]').forEach(el=>{const n=el.name;if(el.type==='checkbox')o[n]=el.checked;else if(el.type==='number')o[n]=el.value===''?null:Number(el.value);else o[n]=String(el.value).trim()});if('flocage' in o)o.flocage=o.flocage==='oui';return o}
+function synchroForm(){if(!etat.form)return;if(etat.modal==='form'&&$('#f-maillot'))Object.assign(etat.form,lireForm('#f-maillot'));if(etat.modal==='wish-form'&&$('#f-wish'))Object.assign(etat.form,lireForm('#f-wish'))}
+function ouvrirFormMaillot(m){etat.form=Object.assign({equipe:'',type:'club',saison:'',marque:'',categorie:'Domicile',version:'Replica',couleur:'',taille:'',flocage:false,joueur:'',numero:'',prixAchat:null,dateAchat:'',notes:'',photos:[],favori:false},m?JSON.parse(JSON.stringify(m)):{});etat.form.photos=[...(etat.form.photos||[])];etat.lens=null;etat.lensHtml='';etat.lensIndice='';etat.srcOuverte='';etat.modal='form';rendre()}
+function ouvrirFormWish(w){etat.form=Object.assign({equipe:'',saison:'',marque:'',categorie:'',version:'Replica',flocage:false,joueur:'',numero:'',budget:null,imageUrl:'',alerte:true,notes:''},w?JSON.parse(JSON.stringify(w)):{});etat.modal='wish-form';rendre()}
+function depuisWish(w){ouvrirFormMaillot({equipe:w.equipe,type:(trouverEquipe(w.equipe)||{}).type||'club',saison:w.saison||'',marque:w.marque||'',categorie:w.categorie||'',version:w.version||'Replica',flocage:!!w.flocage,joueur:w.joueur||'',numero:w.numero||'',notes:w.notes||''});etat.form.depuisWish=w.id}
+async function enregistrerMaillot(){synchroForm();const f=etat.form;if(!f||!f.equipe){toast('Indique au moins l\'équipe.');return}
+ const eq=trouverEquipe(f.equipe);
+ const data={id:f.id||uid(),date:f.date||Date.now(),equipe:f.equipe,type:f.type||(eq?eq.type:'club'),saison:f.saison||'',marque:f.marque||'',categorie:f.categorie||'',version:f.version||'Replica',couleur:f.couleur||'',taille:f.taille||'',flocage:!!f.flocage,joueur:f.joueur||'',numero:f.numero||'',prixAchat:f.prixAchat>0?Number(f.prixAchat):null,dateAchat:f.dateAchat||'',notes:f.notes||'',photos:[...(f.photos||[])],favori:!!f.favori,valeur:f.valeur||null,dateEstimation:f.dateEstimation||null,releve:f.releve||null};
+ for(const id of (f._suppr||[]))await PHOTOS.del(id);
+ const i=collection.findIndex(x=>String(x.id)===String(data.id));if(i>=0)collection[i]=data;else collection.unshift(data);
+ if(f.depuisWish){const w=wishlist.find(x=>String(x.id)===String(f.depuisWish));if(w)w.statut='trouve'}
+ etat.suggCache={};sauver();etat.form=null;etat.lens=null;etat.lensHtml='';etat.lensIndice='';etat.modal='fiche';etat.ficheId=data.id;etat.carrousel=0;etat.srcOuverte='';rendre();toast(i>=0?'Maillot modifié.':'Maillot ajouté à ta collection.')}
+function enregistrerWish(){synchroForm();const f=etat.form;if(!f||!f.equipe){toast('Indique au moins l\'équipe.');return}
+ const i=wishlist.findIndex(x=>String(x.id)===String(f.id));const base=i>=0?wishlist[i]:{id:uid(),date:Date.now(),statut:'suivi'};
+ const w=Object.assign({},base,{equipe:f.equipe,saison:f.saison||'',marque:f.marque||'',categorie:f.categorie||'',version:f.version||'Replica',flocage:!!f.flocage,joueur:f.joueur||'',numero:f.numero||'',budget:f.budget>0?Number(f.budget):null,imageUrl:f.imageUrl||'',alerte:f.alerte!==false,notes:f.notes||''});
+ if(i>=0)wishlist[i]=w;else wishlist.unshift(w);etat.suggCache={};sauver();fermerModal();toast(i>=0?'Souhait modifié.':'Ajouté à ta wishlist.')}
+async function ajouterPhotos(files){synchroForm();const f=etat.form;if(!f||!files)return;const libres=4-(f.photos||[]).length;const liste=[...files].slice(0,Math.max(0,libres));if(!liste.length){toast('4 photos maximum.');return}toast('Ajout des photos…',true);let n=0;
+ for(const file of liste){try{const data=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(r.error);r.readAsDataURL(file)});const petit=await compresser(data,1200,0.82);const id=await PHOTOS.put(petit);f.photos.push(id);(f._ajoutees=f._ajoutees||[]).push(id);n++}catch(e){toast('Photo illisible : '+file.name)}}
+ rendre();toast(`${n} photo${n>1?'s':''} ajoutée${n>1?'s':''}.`)}
+function sauverParams(afficher){const g=n=>$(`main [name="${n}"]`);if(!g('relais'))return;
+ params.prenom=g('prenom').value.trim();params.relais=g('relais').value.trim().replace(/\/$/,'');params.code=g('code').value.trim();params.relaisImages=g('relaisImages').value.trim().replace(/\/$/,'');
+ params.photosWeb=g('photosWeb').checked;params.ebay=g('ebay').checked;params.vinted=g('vinted').checked;params.google=g('google')?g('google').checked:true;params.veille=g('veille').checked;
+ sauver();if(afficher){rendre();toast('Paramètres enregistrés.')}}
+async function tester(){sauverParams(false);const el=$('#res-test');if(!params.relais){toast('Renseigne d\'abord l\'adresse du relais.');return}if(el)el.textContent='Test en cours…';
+ try{const j=await relais('test');const v=+j.version||0;
+  let txt=`Connexion OK · relais v${j.version||'?'} · SerpApi ${j.serpapi?'OK':'absent'} · Lens ${j.lens?'OK':'absent'} · eBay ${j.ebay?'OK':'absent'} · Boutiques Google ${j.google?'OK':'absent'} · Cache KV ${j.kv?'OK':'absent'}`;
+  if(v&&v<7)txt+='<br><b style="color:var(--rouge)">Relais ancien : recolle le code v7 du Worker maillots-relais puis « Deploy ».</b>';
+  if(Array.isArray(j.details)&&j.details.length)txt+='<br>'+j.details.map(x=>esc(String(x))).join('<br>');
+  if(el)el.innerHTML=txt;toast('Relais joignable.');await testerImages()}
+ catch(e){if(el)el.innerHTML=`<span style="color:var(--rouge)">Échec : ${esc(e.message)}</span>`;toast('Connexion impossible : '+e.message)}}
+async function testerImages(){const el=$('#res-test');if(!el||params.photosWeb===false)return;
+ try{const r=await fetch(urlImages(),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:params.code,action:'images',q:'maillot France 1998'})});const j=await r.json().catch(()=>({}));const n=(j.images||[]).length;
+  el.innerHTML+='<br>Photos eBay : '+(r.ok&&j.ok!==false?(n?`${n} image${n>1?'s':''} trouvée${n>1?'s':''} (test « maillot France 1998 »)`:'aucune image (vérifie EBAY_CLIENT_ID / EBAY_CLIENT_SECRET)'):'erreur '+esc(String(j.erreur||j.error||r.status)))}
+ catch(e){el.innerHTML+='<br>Photos eBay : erreur '+esc(e.message)}}
+async function exporter(){toast('Préparation de la sauvegarde…',true);const photos=await PHOTOS.tout().catch(()=>({}));
+ const d={app:'mes-maillots',version:VERSION,date:new Date().toISOString(),collection,wishlist,params:Object.assign({},params),photos,quota:quota(),img:IMG};
+ const blob=new Blob([JSON.stringify(d)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`mes-maillots-${new Date().toISOString().slice(0,10)}.json`;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000);
+ params.dernierExport=Date.now();sauver();rendre();toast('Sauvegarde téléchargée.')}
+async function importer(file){if(!file)return;try{const d=JSON.parse(await file.text());if(!d||!Array.isArray(d.collection))throw new Error('fichier non reconnu');
+ if(!confirm(`Remplacer la collection actuelle (${collection.length} maillots) par celle du fichier (${d.collection.length} maillots, ${(d.wishlist||[]).length} en wishlist) ?`))return;toast('Import en cours…',true);
+ collection=d.collection;wishlist=Array.isArray(d.wishlist)?d.wishlist:[];const anc={relais:params.relais,code:params.code,relaisImages:params.relaisImages};params=Object.assign({},params,d.params||{});if(!params.relais)params.relais=anc.relais;if(!params.code)params.code=anc.code;if(!params.relaisImages)params.relaisImages=anc.relaisImages;
+ if(d.photos&&typeof d.photos==='object')for(const [id,data] of Object.entries(d.photos))await PHOTOS.putId(id,data);
+ if(d.img&&typeof d.img==='object'){Object.assign(IMG,d.img);ecrire(K.img,IMG)}
+ await migrer();etat.suggCache={};sauver();etat.page='collection';rendre();toast('Sauvegarde restaurée.')}catch(e){toast('Import impossible : '+e.message)}}
 
 /* ===================== ÉVÉNEMENTS ===================== */
-let rechT;
 function brancher(){
- root.addEventListener('click',async ev=>{if(ev.target.classList.contains('voile')){fermerModal();return}const el=ev.target.closest('[data-a]');if(!el)return;const a=el.dataset.a,id=el.dataset.id;
-  switch(a){
-   case 'page':etat.page=el.dataset.p;etat.panneau=false;window.scrollTo(0,0);rendre();break;
-   case 'ajouter':ouvrirFormMaillot();break;
-   case 'ajouter-wish':ouvrirFormWish();break;
-   case 'fiche':etat.carrousel=0;etat.ficheId=id;etat.srcOuverte='';etat.modal=()=>{const m=collection.find(x=>x.id===etat.ficheId);return m?ficheMaillot(m):''};rendre();break;
-   case 'favori':{const m=collection.find(x=>x.id===id);if(m){m.favori=!m.favori;sauver();rendre()}break}
-   case 'modifier':{const m=collection.find(x=>x.id===id);if(m)ouvrirFormMaillot(m);break}
-   case 'supprimer':{const m=collection.find(x=>x.id===id);if(m&&confirm(`Supprimer « ${m.equipe} » de la collection ?`)){for(const p of m.photos||[])await PHOTOS.del(p);collection=collection.filter(x=>x.id!==id);sauver();fermerModal();toast('Maillot supprimé.')}break}
-   case 'estimer-fiche':{const m=collection.find(x=>x.id===id);if(m)await estimerMaillot(m);break}
-   case 'estimer':{synchroForm();if(!etat.form.equipe){toast('Indique l\'équipe d\'abord.');return}if(!params.relais){toast('Configure le relais dans Paramètres.');return}toast('Recherche des annonces (eBay, Vinted, Leboncoin)…',true);
-    const c=await collecter(etat.form);if(!etat.form)break;etat.form.releve=fusion(etat.form.releve,c);const s=analyserPrix(etat.form.releve.annonces);if(s)etat.form.valeur=s.mediane;rendre();
-    toast(s?`Estimation ${euros(s.mediane)} · ${c.annonces.length} annonces, détail sous le bouton.`:'Aucune annonce exploitable : essaie « Compléter avec Vinted/Leboncoin » ou simplifie la saison.');break}
-   case 'estim-src':{if($('#f-maillot')||$('#f-wish'))synchroForm();etat.srcOuverte=etat.srcOuverte===el.dataset.s?'':el.dataset.s;rendre();break}
-   case 'estim-vinted':{const cible=el.dataset.c;let x=null,base=null;
-    if(cible==='form'){synchroForm();x=etat.form;base=x&&x.releve}else if(cible.startsWith('wish:')){x=wishlist.find(w=>w.id===cible.slice(5));base=x&&x.releve}else{x=collection.find(m=>m.id===cible);base=x&&x.releve}
-    if(!x||!x.equipe){toast('Indique l\'équipe d\'abord.');break}if(!params.relais){toast('Configure le relais dans Paramètres.');break}
-    toast('Recherche Vinted/Leboncoin…',true);const c=await collecter(x,{sansEbay:true,large:!!(base&&base.vintedCherche)});const r=fusion(base,c);
-    if(cible==='form'){if(!etat.form)break;etat.form.releve=r;const s=analyserPrix(r.annonces);if(s)etat.form.valeur=s.mediane}else if(cible.startsWith('wish:')){appliquerReleveWish(x,r);sauver()}else{appliquerReleveMaillot(x,r);sauver()}
-    rendre();const nv=c.annonces.length;toast(nv?`${nv} annonce${nv>1?'s':''} Vinted/Leboncoin ajoutée${nv>1?'s':''}.`:(c.erreurs[0]||'Rien trouvé sur Vinted/Leboncoin pour cette recherche.'));break}
-   case 'carrousel':{const n=((collection.find(x=>x.id===etat.ficheId)||{}).photos||[]).length;if(n){etat.carrousel=(etat.carrousel+(+el.dataset.d)+n)%n;rendre()}break}
-   case 'img-suivante':{ev.stopPropagation();const c=IMG[norm(el.dataset.q)];if(c&&c.images.length>1){c.i=((c.i||0)+1)%c.images.length;ecrire(K.img,IMG);rendre();toast(`Photo ${c.i+1}/${c.images.length}${c.images[c.i].source?' · '+c.images[c.i].source:''}`)}else toast(c?'Une seule photo disponible pour ce maillot.':'Photo pas encore chargée, réessaie dans un instant.');break}
-   case 'wish-statut':etat.statutWish=el.dataset.s;rendre();break;
-   case 'wish-modifier':{const w=wishlist.find(x=>x.id===id);if(w)ouvrirFormWish(w);break}
-   case 'wish-annonces':{etat.wishId=id;etat.srcOuverte='';etat.modal=()=>{const w=wishlist.find(x=>x.id===etat.wishId);return w?modalAnnoncesWish(w):''};rendre();break}
-   case 'wish-trouve':{const w=wishlist.find(x=>x.id===id);if(w){w.statut='trouve';w.dateTrouve=Date.now();sauver();etat.statutWish='trouve';rendre();if(confirm('Bravo ! Veux-tu l\'ajouter tout de suite à ta collection ?'))ouvrirFormMaillot(depuisWish(w))}break}
-   case 'wish-vers-collection':{const w=wishlist.find(x=>x.id===id);if(w)ouvrirFormMaillot(depuisWish(w));break}
-   case 'wish-reprendre':{const w=wishlist.find(x=>x.id===id);if(w){w.statut='suivi';sauver();etat.statutWish='suivi';rendre()}break}
-   case 'wish-alerte':{const w=wishlist.find(x=>x.id===id);if(w){w.alerte=!w.alerte;sauver();rendre();toast(w.alerte?'Alerte activée.':'Alerte désactivée.')}break}
-   case 'wish-supprimer':{const w=wishlist.find(x=>x.id===id);if(w&&confirm(`Retirer « ${w.equipe} » de la wishlist ?`)){wishlist=wishlist.filter(x=>x.id!==id);sauver();rendre()}break}
-   case 'verifier':await verifierPrix();break;
-   case 'verifier-un':await verifierPrix([id]);break;
-   case 'sugg-wish':{const s=etat.suggCache[+el.dataset.i];if(s){const eq=trouverEquipe(s.equipe);wishlist.unshift({id:uid(),date:Date.now(),equipe:s.equipe,type:eq?eq.type:'club',saison:s.saison||'',marque:s.marque||'',version:'Replica',couleur:'',taille:'',budget:null,alerte:true,statut:'suivi',notes:'',imageUrl:'',flocage:!!s.joueur,joueur:s.joueur||'',numero:''});sauver();rendre();toast(`${s.equipe} ajouté à la wishlist.`)}break}
-   case 'sugg-col':{const s=etat.suggCache[+el.dataset.i];if(s){const eq=trouverEquipe(s.equipe);ouvrirFormMaillot({equipe:s.equipe,type:eq?eq.type:'club',saison:s.saison||'',marque:s.marque||'',joueur:s.joueur||'',flocage:!!s.joueur})}break}
-   case 'idees':etat.seed++;rendre();break;
+ root.addEventListener('click',async e=>{const b=e.target.closest('[data-a]');if(!b||!root.contains(b))return;const a=b.dataset.a;const id=b.dataset.id;
+  const m=id?collection.find(x=>String(x.id)===String(id)):null;const w=id?wishlist.find(x=>String(x.id)===String(id)):null;
+  try{switch(a){
+   case 'page':etat.page=b.dataset.p;etat.panneau=false;window.scrollTo(0,0);rendre();break;
+   case 'ajouter':ouvrirFormMaillot(null);break;
+   case 'ajouter-wish':ouvrirFormWish(null);break;
+   case 'fiche':if(m){etat.modal='fiche';etat.ficheId=m.id;etat.carrousel=0;etat.srcOuverte='';rendre()}break;
+   case 'favori':if(m){m.favori=!m.favori;sauver();rendre()}break;
+   case 'modifier':if(m)ouvrirFormMaillot(m);break;
+   case 'supprimer':if(m&&confirm(`Supprimer « ${m.equipe} ${m.saison||''} » de ta collection ?`)){for(const p of (m.photos||[]))await PHOTOS.del(p);collection=collection.filter(x=>x!==m);etat.suggCache={};sauver();fermerModal();toast('Maillot supprimé.')}break;
+   case 'estimer-fiche':if(m)await estimerMaillot(m);break;
+   case 'estimer':{synchroForm();const f=etat.form;if(!f)break;if(!params.relais){toast('Configure le relais dans Paramètres.');break}if(!f.equipe){toast('Indique d\'abord l\'équipe.');break}
+    toast(`Recherche des annonces (eBay, Vinted, Leboncoin${params.google!==false?' + boutiques Google':''})…`,true);const c=await collecter(f,{google:true});f.releve=fusion(f.releve,c);const s=analyserPrix(f.releve.annonces);if(s){f.valeur=s.mediane;f.dateEstimation=Date.now()}rendre();
+    toast(s?`Valeur estimée ${euros(s.mediane)} (occasion) · ${c.annonces.length} annonces.`:'Aucune annonce d\'occasion exploitable : essaie « Compléter avec Vinted/Leboncoin » ou simplifie la saison.');break}
+   case 'estim-src':synchroForm();etat.srcOuverte=etat.srcOuverte===b.dataset.s?'':b.dataset.s;rendre();break;
+   case 'estim-vinted':case 'estim-google':{const c=String(b.dataset.c||'');const google=a==='estim-google';let x=null,type='';
+    if(c==='form'){synchroForm();x=etat.form;type='form'}else if(c.startsWith('wish:')){x=wishlist.find(y=>String(y.id)===c.slice(5));type='wish'}else{x=collection.find(y=>String(y.id)===c);type='maillot'}
+    if(!x)break;if(!params.relais){toast('Configure le relais dans Paramètres.');break}const base=x.releve;
+    toast(google?'Recherche des boutiques (Google)…':'Recherche Vinted/Leboncoin…',true);
+    const r=google?Object.assign({sources:[],annonces:[]},await collecterBoutiques(x)):await collecter(x,{sansEbay:true,large:!!(base&&base.vintedCherche)});
+    const rel=fusion(base,r);
+    if(type==='form'){x.releve=rel;if(!google){const s=analyserPrix(rel.annonces);if(s){x.valeur=s.mediane;x.dateEstimation=Date.now()}}}
+    else if(type==='wish'){if(google){x.releve=rel;x.dernierReleve=Date.now()}else appliquerReleveWish(x,rel);sauver()}
+    else{if(google)x.releve=rel;else appliquerReleveMaillot(x,rel);sauver()}
+    rendre();const nb=google?(r.boutiques||[]).length:(r.annonces||[]).length;
+    toast(r.erreurs&&r.erreurs.length?r.erreurs[0]:(google?`${nb} boutique${nb>1?'s':''} trouvée${nb>1?'s':''} (prix neuf, hors calcul).`:`${nb} annonce${nb>1?'s':''} Vinted/Leboncoin ajoutée${nb>1?'s':''}.`));break}
+   case 'carrousel':etat.carrousel+=Number(b.dataset.d)||0;rendre();break;
+   case 'img-suivante':{const k=norm(b.dataset.q||'');const c=IMG[k];if(c&&c.images&&c.images.length>1){c.i=((c.i||0)+1)%c.images.length;ecrire(K.img,IMG);synchroForm();rendre()}else toast(c&&c.images&&c.images.length?'Une seule photo disponible pour ce maillot.':'Photo pas encore chargée : réessaie dans un instant.');break}
+   case 'wish-onglet':etat.statutWish=b.dataset.s;rendre();break;
+   case 'wish-modifier':if(w)ouvrirFormWish(w);break;
+   case 'wish-annonces':if(w){etat.modal='wish-annonces';etat.wishId=w.id;etat.srcOuverte='';rendre()}break;
+   case 'wish-trouve':if(w){w.statut='trouve';sauver();rendre();toast('Bravo ! Retrouve-le dans l\'onglet « Trouvés » pour l\'ajouter à ta collection.')}break;
+   case 'wish-pause':if(w){w.statut='pause';sauver();rendre()}break;
+   case 'wish-reprendre':if(w){w.statut='suivi';sauver();rendre()}break;
+   case 'wish-vers-collection':if(w)depuisWish(w);break;
+   case 'wish-alerte':if(w){w.alerte=!w.alerte;sauver();rendre()}break;
+   case 'wish-supprimer':if(w&&confirm(`Retirer « ${w.equipe} ${w.saison||''} » de la wishlist ?`)){wishlist=wishlist.filter(x=>x!==w);etat.suggCache={};sauver();if(etat.modal==='wish-annonces')fermerModal();else rendre()}break;
+   case 'verifier':await verifierPrix(null,false);break;
+   case 'verifier-un':if(w)await verifierPrix([w.id],false);break;
+   case 'sugg-wish':{const s=suggestions().slice(0,6)[+b.dataset.i];if(!s)break;if(wishlist.some(x=>norm(x.equipe+'|'+x.saison)===norm(s.equipe+'|'+s.saison))){toast('Déjà dans ta wishlist.');break}
+    wishlist.unshift({id:uid(),date:Date.now(),equipe:s.equipe,saison:s.saison,marque:s.marque||'',categorie:'',version:'Replica',flocage:!!s.joueur,joueur:s.joueur||'',numero:'',budget:null,imageUrl:'',alerte:true,statut:'suivi',notes:s.citation||''});etat.suggCache={};sauver();rendre();toast(`${s.equipe} ${s.saison} ajouté à ta wishlist.`);break}
+   case 'sugg-col':{const s=suggestions().slice(0,6)[+b.dataset.i];if(!s)break;ouvrirFormMaillot({equipe:s.equipe,type:(trouverEquipe(s.equipe)||{}).type||'club',saison:s.saison,marque:s.marque||'',flocage:!!s.joueur,joueur:s.joueur||'',notes:''});break}
+   case 'idees':etat.seed++;etat.suggCache={};rendre();break;
    case 'notifs':etat.panneau=!etat.panneau;rendre();break;
-   case 'notif':{const lus=lire(K.notifs,[]);if(!lus.includes(id)){lus.push(id);ecrire(K.notifs,lus)}etat.panneau=false;if(el.dataset.p)etat.page=el.dataset.p;rendre();break}
-   case 'notif-lu-tout':ecrire(K.notifs,notifications().map(n=>n.id));rendre();break;
-   case 'fermer':fermerModal();break;
+   case 'notif':marquerLu([b.dataset.id]);etat.panneau=false;if(b.dataset.p)etat.page=b.dataset.p;rendre();break;
+   case 'notif-lu-tout':marquerLu(notifications().map(n=>n.id));rendre();break;
+   case 'fermer':case 'fermer-voile':{if(a==='fermer-voile'&&e.target!==b)break;const f=etat.form;if(f&&f._ajoutees)for(const p of f._ajoutees)await PHOTOS.del(p);fermerModal();break}
    case 'lens':await identifierLens();break;
-   case 'appliquer':appliquerLens(+el.dataset.i);break;
-   case 'photo-suppr':{synchroForm();const p=etat.form.photos.splice(+el.dataset.i,1)[0];if(p&&p.id)etat.form.photosSupprimees.push(p.id);rendre();break}
+   case 'appliquer':appliquerLens(+b.dataset.i);break;
+   case 'photo-suppr':{synchroForm();const f=etat.form;if(!f)break;const i=+b.dataset.i;const p=f.photos[i];if(p==null)break;f.photos.splice(i,1);if(f._ajoutees&&f._ajoutees.includes(p)){f._ajoutees=f._ajoutees.filter(x=>x!==p);await PHOTOS.del(p)}else(f._suppr=f._suppr||[]).push(p);rendre();break}
    case 'enregistrer':await enregistrerMaillot();break;
    case 'wish-enregistrer':enregistrerWish();break;
    case 'sauver-params':sauverParams(true);break;
-   case 'tester':{sauverParams(false);const z=$('#res-test');if(z)z.innerHTML='<div class="aide">Test en cours…</div>';let txt='',det='',ok=true;
-    try{const j=await relais('test');txt=`Connexion OK · relais v${esc(j.version)} · SerpApi ${j.serpapi?'OK':'absent'} · Lens ${j.lens?'OK':'absent'} · eBay ${j.ebay?'OK':'non configuré'}`;
-     if(Array.isArray(j.details)&&j.details.length)det=j.details.map(d=>`<div class="aide" style="margin:2px 0">· ${esc(d)}</div>`).join('');
-     if(j.version&&+j.version<6)det+='<div class="aide" style="color:var(--rouge)">Relais ancien : recolle le code v6 du Worker maillots-relais puis « Deploy ».</div>'}
-    catch(e){ok=false;txt='Échec : '+esc(e.message)}
-    const im=await testerImages();if(z)z.innerHTML=`<div class="aide" style="color:var(--${ok?'vert':'rouge'})">${txt}</div>${det}<div class="aide" style="color:var(--${im.startsWith('Photos eBay OK')?'vert':'rouge'})">${esc(im)}</div>`;break}
+   case 'tester':await tester();break;
    case 'exporter':await exporter();break;
-   case 'vider-wiki':for(const k in WIKI)delete WIKI[k];ecrire(K.wiki,WIKI);rendre();toast('Cache Wikipédia vidé.');break;
-   case 'vider-img':if(confirm('Oublier les photos eBay mémorisées sur ce téléphone ? Elles seront rechargées depuis le relais (gratuitement).')){for(const k in IMG)delete IMG[k];ecrire(K.img,IMG);rendre();toast('Photos eBay oubliées.')}break;
-   case 'maj':{try{if(navigator.serviceWorker){const rs=await navigator.serviceWorker.getRegistrations();for(const r of rs)await r.unregister()}if(window.caches){for(const k of await caches.keys())await caches.delete(k)}}catch(e){}location.reload();break}
+   case 'vider-wiki':Object.keys(WIKI).forEach(k=>delete WIKI[k]);ecrire(K.wiki,WIKI);rendre();toast('Cache Wikipédia vidé.');break;
+   case 'vider-img':Object.keys(IMG).forEach(k=>delete IMG[k]);ecrire(K.img,IMG);rendre();toast('Cache des photos web vidé.');break;
+   case 'maj':{toast('Mise à jour en cours…',true);try{if('serviceWorker' in navigator){const regs=await navigator.serviceWorker.getRegistrations();for(const r of regs)await r.unregister()}if(window.caches){const ks=await caches.keys();for(const k of ks)await caches.delete(k)}}catch(err){}location.reload();break}
    case 'reset-filtres':etat.recherche='';etat.filtres={equipe:'',saison:'',couleur:'',categorie:''};rendre();break;
-  }});
- root.addEventListener('input',ev=>{if(ev.target.id==='recherche'){etat.recherche=ev.target.value;clearTimeout(rechT);rechT=setTimeout(()=>{const z=$('#zone-liste');if(z){z.innerHTML=listeCollection();chargerPhotos();chargerVisuels()}},150)}});
- root.addEventListener('change',async ev=>{const t=ev.target;if(t.classList.contains('pilule')){etat.filtres[t.dataset.f]=t.value;rendre()}else if(t.name==='flocage'&&etat.form){synchroForm();rendre()}else if(t.id==='fichier-photo'){await ajouterPhotos([...t.files])}else if(t.id==='fichier-import'&&t.files[0]){try{await importer(t.files[0])}catch(e){toast('Import impossible : '+e.message)}}});
- document.addEventListener('keydown',ev=>{if(ev.key==='Escape'&&etat.modal)fermerModal()});
-}
+  }}catch(err){console.error(err);toast('Oups : '+((err&&err.message)||err))}});
+ let rechTimer=0;
+ root.addEventListener('input',e=>{const t=e.target;if(t.id==='recherche'){etat.recherche=t.value;clearTimeout(rechTimer);rechTimer=setTimeout(()=>{const z=$('#zone-liste');if(z){z.innerHTML=listeCollection();chargerPhotos();chargerVisuels()}},150)}else if(t.id==='lens-indice')etat.lensIndice=t.value});
+ root.addEventListener('change',e=>{const t=e.target;if(t.classList.contains('pilule')){etat.filtres[t.dataset.f]=t.value;rendre()}else if(t.name==='flocage'&&t.closest('#f-maillot,#f-wish')){synchroForm();rendre()}else if(t.id==='fichier-photo'){ajouterPhotos(t.files)}else if(t.id==='fichier-import'){importer(t.files[0]);t.value=''}});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(etat.modal)fermerModal();else if(etat.panneau){etat.panneau=false;rendre()}}})}
 
 /* ===================== STYLES ===================== */
-const CSS=`
-:root{--vert:#143d2f;--vert2:#1f5a44;--or:#c9a227;--lime:#c6e36b;--fond:#f5f3ee;--beige:#efe9dc;--texte:#14201b;--gris:#6b7570;--ligne:#e6e2d9;--rouge:#e11d48}
-*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--fond);color:var(--texte);font-family:Inter,system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.5}
-h1,h2,h3{font-family:'Playfair Display',Georgia,serif;font-weight:600;margin:0;letter-spacing:-.01em}
-.entete{position:sticky;top:0;z-index:20;background:rgba(245,243,238,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--ligne)}
-.entete-in{max-width:1180px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;gap:14px}
-.brand{cursor:pointer;display:flex;flex-direction:column;line-height:1.1}.brand b{font-family:'Playfair Display',Georgia,serif;font-size:21px;font-weight:700}.brand small{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--gris);margin-top:2px}
-.nav{display:flex;gap:4px;margin-left:auto;background:#fff;border:1px solid var(--ligne);border-radius:999px;padding:4px}.nav button{border:0;background:none;padding:8px 16px;border-radius:999px;font:inherit;font-size:14px;cursor:pointer;color:var(--gris)}.nav button.on{background:var(--beige);color:var(--texte);font-weight:600}
-.bell{position:relative;width:40px;height:40px;border-radius:50%;border:1px solid var(--ligne);background:#fff;cursor:pointer;color:var(--gris);display:grid;place-items:center;margin-left:auto}.nav+.btn-ajouter{margin-left:0}.bell+.nav{margin-left:0}.bell.on{color:#000;border-color:#000}.bell.on svg{fill:#000}.bell .pt{position:absolute;top:8px;right:9px;width:8px;height:8px;border-radius:50%;background:var(--rouge);border:2px solid #fff}
-.ic{width:18px;height:18px;flex:none}
-.btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--ligne);background:#fff;color:var(--texte);padding:10px 16px;border-radius:999px;font:inherit;font-size:14px;font-weight:500;cursor:pointer;text-decoration:none;white-space:nowrap}.btn:hover{border-color:#b9b4a8}.btn-vert{background:var(--vert);color:#fff;border-color:var(--vert)}.btn-vert:hover{background:var(--vert2)}.btn-ic{padding:10px;width:42px;justify-content:center}.btn-rouge{color:var(--rouge)}.btn[disabled]{opacity:.5;cursor:default}
-main{max-width:1180px;margin:0 auto;padding:28px 20px 110px}
-.eyebrow{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--gris);font-weight:600}
-.titre-page{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap;margin-bottom:22px}.titre-page h1{font-size:40px;line-height:1.1;margin:6px 0 10px}.titre-page p{margin:0;color:var(--gris);max-width:720px}
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}.kpi{background:#fff;border:1px solid var(--ligne);border-radius:16px;padding:18px 20px}.kpi .lab,.wprix .lab{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--gris);font-weight:600}.kpi .val{font-family:'Playfair Display',Georgia,serif;font-size:30px;margin-top:6px;line-height:1.1}.kpi .val.lime{color:#8db63c}.kpi .val.rouge{color:var(--rouge)}.kpi .sub{font-size:12px;color:var(--gris);margin-top:4px}
-.avert{display:flex;gap:12px;align-items:flex-start;background:#e9f1da;border:1px solid #d3e3b5;border-radius:14px;padding:14px 16px;color:#2f4a1e;font-size:14px;margin-bottom:16px}.avert .ic{margin-top:2px}
-.recherche{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--ligne);border-radius:999px;padding:12px 18px;margin-bottom:12px;color:var(--gris)}.recherche input{border:0;outline:0;flex:1;font:inherit;font-size:15px;background:none;color:var(--texte);min-width:0}
-.filtres{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}.pilule{appearance:none;-webkit-appearance:none;border:1px solid var(--ligne);background:#fff url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2314201b' stroke-width='2'><path d='m6 9 6 6 6-6'/></svg>") no-repeat right 14px center;padding:9px 38px 9px 16px;border-radius:999px;font:inherit;font-size:14px;cursor:pointer;color:var(--texte);max-width:220px}
-.compte{color:var(--gris);font-size:14px;margin-bottom:12px}
-.grille{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px}
-.carte{background:#fff;border:1px solid var(--ligne);border-radius:18px;overflow:hidden;cursor:pointer;transition:transform .15s,box-shadow .15s}.carte:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(0,0,0,.08)}
-.img{position:relative;aspect-ratio:4/3;background:var(--beige);overflow:hidden}.img>img{width:100%;height:100%;object-fit:cover;display:block}
-.visu{width:100%;height:100%;display:grid;place-items:center;position:relative;background:#fff}.visu-img{width:100%;height:100%;object-fit:cover;display:block;background:#fff}.visu-img.logo{object-fit:contain;padding:10%}.visu-drapeau{width:100%;height:100%;object-fit:cover;display:block}.visu-maillot{width:60%;max-width:200px}.visu-maillot svg{width:100%;height:auto;display:block}
-.visu:has(.visu-maillot):not(:has(.visu-img)){background:var(--beige)}.visu>.visu-img+.visu-maillot,.visu>.visu-img+.visu-drapeau{display:none}
-.badge{position:absolute;top:10px;left:10px;background:rgba(245,243,238,.96);border-radius:999px;padding:4px 10px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;font-weight:600;z-index:2}
-.heart{position:absolute;top:8px;right:8px;width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.92);color:#555;display:grid;place-items:center;cursor:pointer;z-index:2}.heart.on{color:var(--rouge)}.heart.on svg{fill:var(--rouge);animation:pop .3s}@keyframes pop{50%{transform:scale(1.3)}}
-.corps{padding:14px 16px 16px}.corps h3{font-size:19px;line-height:1.2}.corps h3 small{font-family:Inter,sans-serif;font-size:13px;color:var(--gris);font-weight:500}.meta{color:var(--gris);font-size:13px;margin-top:3px}.bas{display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px}.bas b{font-family:'Playfair Display',Georgia,serif;font-size:18px}
-.chip{background:var(--beige);border-radius:999px;padding:3px 10px;font-size:12px;white-space:nowrap}
-.floc{display:inline-flex;align-items:center;gap:6px;background:#e9f1da;color:#2f4a1e;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:500}
-.chips{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.chips button{border:1px solid var(--ligne);background:#fff;padding:8px 16px;border-radius:999px;font:inherit;font-size:14px;cursor:pointer}.chips button.on{background:var(--vert);color:#fff;border-color:var(--vert)}
-.aide{color:var(--gris);font-size:13px;margin:6px 0}
-.wgrille{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
-.wcarte{background:#fff;border:1px solid var(--ligne);border-radius:18px;padding:20px}.wtete{display:flex;gap:14px;align-items:flex-start}.wtete h3{font-size:22px;line-height:1.15}
-.wvisu{width:72px;height:72px;border-radius:14px;overflow:hidden;background:var(--beige);flex:none}.wvisu.grand{width:96px;height:96px}.wvisu .visu-maillot{width:78%}.wvisu .visu-img{object-fit:cover}.wvisu .visu-img.logo{object-fit:contain;padding:8%}
-.wbell{margin-left:auto;width:40px;height:40px;border-radius:50%;border:0;background:#e9f1da;color:#2f4a1e;display:grid;place-items:center;cursor:pointer;flex:none}.wbell svg{fill:#2f4a1e}.wbell.off{background:var(--beige);color:#999}.wbell.off svg{fill:none}
-.wsep{border-top:1px solid var(--ligne);margin:16px 0}.wprix{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.wprix .val{font-family:'Playfair Display',Georgia,serif;font-size:22px;margin-top:4px}.arelever{font-family:Inter,sans-serif;font-size:14px;color:var(--gris);font-style:italic}
-.wnote{font-size:13px;color:#3f4a44;margin-top:12px;line-height:1.5}.wnote a{color:var(--vert);display:inline-flex;align-items:center;gap:4px}.wnote .ic{width:14px;height:14px}
-.wactions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center}
-.estim{background:var(--fond);border-radius:14px;padding:14px;margin-top:14px;font-size:14px;text-align:left}.estim-glob{margin:8px 0 10px}.estim-glob b{font-family:'Playfair Display',Georgia,serif;font-size:20px}
-.src{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--ligne);flex-wrap:wrap;font-size:13px}.src>b{min-width:84px}
-.annonces{display:flex;flex-direction:column;gap:6px;margin:2px 0 10px}.ann{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--ligne);border-radius:10px;padding:8px 10px;color:var(--texte);text-decoration:none;font-size:13px}.ann:hover{border-color:#b9b4a8}.ann .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ann .e{color:var(--gris);font-size:12px;white-space:nowrap}.ann b{white-space:nowrap}.ann .ic{width:14px;height:14px;color:var(--vert)}.ann.sus{opacity:.5}
-.hero{background:var(--vert);color:#fff;border-radius:24px;padding:40px;position:relative;overflow:hidden;margin-bottom:28px}.hero h1{font-size:40px;line-height:1.1;margin:8px 0 12px;max-width:620px}.hero p{max-width:620px;opacity:.85;margin:0}.stats{display:flex;gap:22px;flex-wrap:wrap;margin-top:22px;font-size:14px;position:relative;z-index:1}.stats span::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--or);margin-right:8px}.deco{position:absolute;right:-30px;bottom:-50px;width:280px;opacity:.08}
-.section{display:flex;justify-content:space-between;align-items:center;margin:28px 0 14px;gap:10px}.section h2{font-size:26px}
-.sugg{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}.sugg-carte{cursor:default}.cit{font-style:italic;color:#3f4a44;font-size:13.5px;margin-top:8px;font-family:'Playfair Display',Georgia,serif;line-height:1.45}.raison{font-size:12px;color:var(--gris);margin-top:6px}
-.vide{text-align:center;padding:50px 20px;background:#fff;border:1px dashed var(--ligne);border-radius:18px;color:var(--gris)}.vide h3{color:var(--texte);margin:14px 0 6px;font-size:22px}.vide .visu{width:100px;height:100px;margin:0 auto;background:none}.vide .visu-maillot{width:100%}
-.carte-param{background:#fff;border:1px solid var(--ligne);border-radius:18px;padding:22px;margin-bottom:16px}.carte-param h2{font-size:22px;margin-bottom:12px}
-.form{display:grid;grid-template-columns:1fr 1fr;gap:12px}.form label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--gris);font-weight:600;letter-spacing:.04em}.form input,.form select,.form textarea{border:1px solid var(--ligne);border-radius:12px;padding:10px 12px;font:inherit;font-size:15px;color:var(--texte);background:#fafaf7;width:100%}.form textarea{min-height:70px;resize:vertical}.form .plein{grid-column:1/-1}.form .coche{flex-direction:row;align-items:center;gap:10px;font-weight:500;color:var(--texte);letter-spacing:0;font-size:14px}.form .coche input{width:18px;height:18px}
-.quota{height:8px;background:var(--beige);border-radius:999px;overflow:hidden;margin-top:10px}.quota i{display:block;height:100%;background:var(--vert)}
-.voile{position:fixed;inset:0;background:rgba(20,32,27,.55);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:30px 14px;overflow:auto}
-.modal{background:#fff;border-radius:22px;padding:26px;width:100%;max-width:700px;position:relative}.modal h2{font-size:28px;margin:4px 0 14px;padding-right:44px}.fermer{position:absolute;top:14px;right:14px;z-index:3}
-.carrousel{position:relative;aspect-ratio:4/3;border-radius:16px;overflow:hidden;background:var(--beige);display:grid;place-items:center;margin-bottom:16px}.carrousel>img{width:100%;height:100%;object-fit:contain;display:block}.carrousel .visu-maillot{width:45%}.carrousel .visu-drapeau{width:60%;height:auto}.carrousel .visu-img{object-fit:contain}
-.fl{position:absolute;top:50%;transform:translateY(-50%);width:38px;height:38px;border-radius:50%;border:0;background:rgba(255,255,255,.9);cursor:pointer;display:grid;place-items:center;z-index:2}.fl.g{left:10px}.fl.d{right:10px}.pts{position:absolute;bottom:10px;left:0;right:0;display:flex;justify-content:center;gap:6px}.pts i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.6)}.pts i.on{background:#fff}
-.ftete{display:flex;gap:14px;align-items:center;margin-bottom:14px}.ftete h2{margin:2px 0 4px;padding-right:0}.det{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;font-size:14px;margin:14px 0}.det .lab{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--gris)}
-.photos-edit{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}.ph{width:96px;height:96px;border-radius:14px;overflow:hidden;position:relative;background:var(--beige);border:1px dashed var(--ligne);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:12px;color:var(--gris);cursor:pointer}.ph img{width:100%;height:100%;object-fit:cover}.ph .x{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;border:0;background:rgba(255,255,255,.9);display:grid;place-items:center;cursor:pointer}.ph .x .ic{width:12px;height:12px}
-.lens-res{background:var(--fond);border-radius:14px;padding:14px;margin:12px 0;font-size:14px}.props{display:flex;flex-direction:column;gap:8px;margin-top:8px}.prop{display:flex;align-items:center;gap:12px;background:#fff;border-radius:12px;padding:10px}.mini{width:44px;height:44px;border-radius:10px;overflow:hidden;background:var(--beige);flex:none}.mini .visu-maillot{width:80%}.mini .visu-img.logo{padding:6%}
-.simil{display:flex;gap:8px;overflow-x:auto;padding:8px 0}.simil img{width:90px;height:90px;object-fit:cover;border-radius:10px;border:1px solid var(--ligne);flex:none}
-.panneau{position:fixed;top:70px;right:20px;width:360px;max-width:calc(100% - 40px);background:#fff;border:1px solid var(--ligne);border-radius:18px;padding:18px;z-index:40;box-shadow:0 20px 50px rgba(0,0,0,.15);max-height:70vh;overflow:auto}.notif{padding:12px 0;border-top:1px solid var(--ligne);cursor:pointer;display:flex;flex-direction:column;gap:3px;font-size:14px}.notif span{color:var(--gris);font-size:13px}.notif.lu{opacity:.5}
-.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--texte);color:#fff;padding:12px 20px;border-radius:999px;font-size:14px;z-index:100;display:none;max-width:90%;text-align:center}
+const STYLE_CSS=`:root{--vert:#143d2f;--vert2:#1f5a44;--or:#c9a227;--lime:#c6e36b;--fond:#f5f3ee;--beige:#efe9dc;--texte:#14201b;--gris:#6b7570;--ligne:#e6e2d9;--rouge:#e11d48}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--fond);color:var(--texte);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.45}body.bloque{overflow:hidden}
+h1,h2,h3{font-family:"Playfair Display",Georgia,serif;margin:0;line-height:1.15}h1{font-size:30px}h2{font-size:22px}h3{font-size:19px;margin-bottom:10px}
+button{font:inherit;cursor:pointer}input,select,textarea{font:inherit}a{color:inherit}
+.ic{width:18px;height:18px;flex:none;vertical-align:-3px}
+.entete{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--vert);color:#fff}
+.marque{display:flex;align-items:center;gap:10px;cursor:pointer}.marque small{display:block;font-size:11px;opacity:.75}.marque b{font-family:"Playfair Display",serif;font-size:18px}
+.logo-mm{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:var(--or);color:var(--vert)}.logo-mm .ic{width:22px;height:22px}
+.nav{display:flex;gap:4px;margin-left:auto}.nav button{display:flex;align-items:center;gap:6px;padding:8px 14px;border:0;border-radius:999px;background:transparent;color:#fff;opacity:.8}.nav button.on,.nav button:hover{background:rgba(255,255,255,.14);opacity:1}
+.bell{position:relative;border:0;background:rgba(255,255,255,.12);color:#fff;width:40px;height:40px;border-radius:12px;display:grid;place-items:center}.bell i{position:absolute;top:-4px;right:-4px;background:var(--or);color:var(--vert);font-style:normal;font-size:11px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:grid;place-items:center;padding:0 4px}
+main{max-width:1120px;margin:0 auto;padding:22px 18px 90px}
+.btn{display:inline-flex;align-items:center;gap:7px;padding:9px 15px;border:1px solid var(--ligne);border-radius:12px;background:#fff;color:var(--texte);font-weight:600;font-size:14px;text-decoration:none;line-height:1.2}.btn:hover{border-color:var(--vert2)}.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-vert{background:var(--vert);border-color:var(--vert);color:#fff}.btn-vert:hover{background:var(--vert2)}.btn-ic{padding:9px;width:38px;justify-content:center}.btn-rouge{color:var(--rouge)}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--gris);font-weight:700;margin-bottom:4px}
+.titre-page{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px}.titre-page .actions{display:flex;gap:8px;flex-wrap:wrap}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}.kpi{background:#fff;border:1px solid var(--ligne);border-radius:16px;padding:12px 14px}.kpi small{display:block;color:var(--gris);font-size:12px}.kpi b{font-size:20px;font-family:"Playfair Display",serif}
+.plus{color:#1b8a3c}.moins{color:var(--rouge)}
+.avert{display:flex;gap:10px;align-items:flex-start;background:var(--beige);border-radius:14px;padding:12px 14px;font-size:13px;color:#4b554f;margin-bottom:14px}.avert .ic{margin-top:2px;color:var(--vert2)}
+.recherche{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--ligne);border-radius:14px;padding:0 14px;margin-bottom:10px}.recherche input{flex:1;border:0;outline:0;padding:12px 0;background:transparent;font-size:15px;min-width:0}
+.filtres{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center}.pilule,.pilule-btn{border:1px solid var(--ligne);background:#fff;border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;color:var(--texte);max-width:100%}.pilule-btn.on{background:var(--vert);color:#fff;border-color:var(--vert)}.pilule-btn small{opacity:.7}
+.grille{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
+.carte{background:#fff;border:1px solid var(--ligne);border-radius:18px;overflow:hidden;cursor:pointer;transition:transform .15s,box-shadow .15s}.carte:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(20,32,27,.08)}
+.img{position:relative;aspect-ratio:1;background:var(--beige)}
+.visu{position:relative;width:100%;height:100%;overflow:hidden;display:grid;place-items:center;background:var(--beige)}.visu>*{grid-area:1/1}
+.visu-img{width:100%;height:100%;object-fit:cover;position:relative;z-index:1;background:#fff}.visu-img.logo{object-fit:contain;padding:14%}.visu-img.photo{object-fit:cover}
+.visu-drapeau{width:100%;height:100%;object-fit:cover;opacity:.9}.visu-maillot{width:70%;height:70%}.visu-maillot svg{width:100%;height:100%;filter:drop-shadow(0 6px 10px rgba(0,0,0,.15))}
+.badge{position:absolute;left:10px;top:10px;z-index:2;background:rgba(20,61,47,.85);color:#fff;font-size:11px;font-weight:700;padding:4px 9px;border-radius:999px}
+.heart{position:absolute;right:10px;top:10px;z-index:2;width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.9);color:var(--gris);display:grid;place-items:center}.heart.on{color:var(--rouge)}.heart.on svg{fill:var(--rouge)}
+.corps{padding:12px 14px 14px}.corps>b{display:block;font-size:15px}.meta{color:var(--gris);font-size:13px;margin-top:2px}
+.bas{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--gris)}.bas b{color:var(--texte);font-size:14px;margin-left:auto}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.chip,.floc{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;background:var(--beige);color:#4b554f}.floc{background:var(--vert);color:#fff}.chip.ok{background:var(--lime);color:var(--vert)}
+.aide{font-size:13px;color:var(--gris);margin:8px 0}
+.wgrille{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.wcarte{background:#fff;border:1px solid var(--ligne);border-radius:18px;padding:14px}.wcarte.ok{border-color:var(--lime);box-shadow:0 0 0 3px rgba(198,227,107,.35)}
+.wtete{display:flex;gap:12px;align-items:flex-start}.wtete>div:nth-child(2){flex:1;min-width:0}.wtete b{font-size:16px}
+.wvisu{width:76px;height:76px;border-radius:14px;overflow:hidden;flex:none}.wvisu.grand{width:100%;height:220px}
+.wbell{border:0;background:var(--beige);color:var(--gris);width:36px;height:36px;border-radius:10px;display:grid;place-items:center;flex:none}.wbell.on{background:var(--or);color:var(--vert)}
+.wsep{height:1px;background:var(--ligne);margin:12px 0}
+.wprix{display:flex;gap:18px;flex-wrap:wrap}.wprix small{display:block;color:var(--gris);font-size:11px}.wprix b{font-size:18px;font-family:"Playfair Display",serif}.wprix span{font-size:12px;margin-left:6px;font-weight:600}
+.wnote{font-size:12px;color:var(--gris);margin-top:8px}
+.wactions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.estim{background:var(--fond);border:1px solid var(--ligne);border-radius:16px;padding:12px 14px;margin-top:14px}.estim-glob{font-size:15px;margin:6px 0 10px}.estim-form{margin-top:16px}
+.src{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px dashed var(--ligne);font-size:13px;flex-wrap:wrap}.src>b:first-child{min-width:90px}
+.annonces{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px}
+.ann{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--ligne);border-radius:12px;padding:9px 12px;color:var(--texte);text-decoration:none;font-size:13px}.ann:hover{border-color:var(--vert2)}.ann .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ann .e{font-size:11px;color:var(--gris);background:var(--beige);padding:2px 7px;border-radius:999px;white-space:nowrap}.ann>b{white-space:nowrap}.ann.sus{opacity:.55;text-decoration:line-through}.ann .ic{width:14px;height:14px;color:var(--gris)}
+.hero{position:relative;overflow:hidden;background:var(--vert);color:#fff;border-radius:24px;padding:30px 28px;margin-bottom:26px}.hero h1{font-size:34px;max-width:560px;margin:6px 0 16px}.hero em{color:var(--or);font-style:italic}.hero .eyebrow{color:var(--lime)}
+.deco{position:absolute;right:-20px;top:-20px;width:240px;height:240px;opacity:.18;transform:rotate(12deg);pointer-events:none}.deco svg{width:100%;height:100%}
+.stats{display:flex;gap:26px;flex-wrap:wrap;margin-bottom:18px;position:relative}.stats b{display:block;font-size:26px;font-family:"Playfair Display",serif}.stats small{opacity:.75}
+.hero .btn{border-color:rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:#fff}.hero .btn-vert{background:var(--or);border-color:var(--or);color:var(--vert)}.hero .wactions{position:relative}
+.section{margin-top:26px}
+.sugg{background:#fff;border:1px solid var(--ligne);border-radius:18px;overflow:hidden;display:flex;flex-direction:column}.sugg .img{aspect-ratio:4/3}.sugg .corps{display:flex;flex-direction:column;flex:1}.sugg .wactions{margin-top:auto;padding-top:10px}
+.sugg-grille{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+.cit{font-family:"Playfair Display",Georgia,serif;font-style:italic;font-size:14px;color:#4b554f;margin:8px 0 0}.raison{font-size:11px;font-weight:700;color:var(--vert2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px}
+.vide{text-align:center;padding:50px 20px;color:var(--gris)}.vide .ic{width:40px;height:40px;opacity:.5}.vide p{margin:10px 0 16px}
+.carte-param{background:#fff;border:1px solid var(--ligne);border-radius:18px;padding:18px;margin-bottom:14px}
+.form{display:grid;gap:12px}.form label{display:grid;gap:5px;font-size:13px;font-weight:600;color:#4b554f;min-width:0}.form input,.form select,.form textarea{width:100%;padding:10px 12px;border:1px solid var(--ligne);border-radius:12px;background:#fff;font-size:15px;color:var(--texte)}.form textarea{min-height:80px;resize:vertical}.form .ligne{display:grid;grid-template-columns:1fr 1fr;gap:12px}.form .ligne.trois{grid-template-columns:1fr 1fr 1fr}
+.case{display:flex!important;align-items:center;gap:10px;font-weight:500!important}.case input{width:20px!important;height:20px;accent-color:var(--vert);flex:none}
+.quota{display:grid;gap:6px;margin:6px 0}.jauge{height:10px;background:var(--beige);border-radius:5px;overflow:hidden}.jauge i{display:block;height:100%;background:linear-gradient(90deg,var(--vert2),var(--or))}
+.voile{position:fixed;inset:0;z-index:40;background:rgba(20,32,27,.55);display:flex;align-items:flex-end;justify-content:center}
+.modal{position:relative;background:var(--fond);width:100%;max-width:760px;max-height:94vh;overflow:auto;border-radius:24px 24px 0 0;padding:22px 20px 30px;-webkit-overflow-scrolling:touch}
+.fermer{position:absolute;right:14px;top:14px;z-index:3;width:36px;height:36px;border:0;border-radius:50%;background:#fff;color:var(--texte);display:grid;place-items:center;box-shadow:0 2px 8px rgba(0,0,0,.12)}.fermer.petit{width:26px;height:26px;right:6px;top:6px}
+.carrousel{position:relative;aspect-ratio:1;max-height:420px;border-radius:18px;overflow:hidden;background:var(--beige);margin:14px 0}.carrousel .visu{height:100%}
+.fl{position:absolute;top:50%;transform:translateY(-50%);width:38px;height:38px;border:0;border-radius:50%;background:rgba(255,255,255,.9);display:grid;place-items:center;z-index:2}.fl.g{left:10px}.fl.d{right:10px}
+.pts{position:absolute;bottom:10px;left:0;right:0;display:flex;justify-content:center;gap:6px;z-index:2}.pts i{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.6)}.pts i.on{background:#fff}
+.ftete{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding-right:44px;margin-bottom:10px}.ftete .heart{position:static;flex:none}
+.det{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:14px 0}.det>div{background:#fff;border:1px solid var(--ligne);border-radius:12px;padding:9px 12px;min-width:0}.det small{display:block;color:var(--gris);font-size:11px}.det b{font-size:14px;word-break:break-word}
+.photos-edit{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 14px}.ph{position:relative;width:92px;height:92px;border-radius:14px;overflow:hidden;background:var(--beige);border:1px solid var(--ligne)}.ph.ajout{display:grid;place-items:center;align-content:center;gap:4px;cursor:pointer;color:var(--vert2);font-size:12px;font-weight:700;border-style:dashed}
+.lens{background:#fff;border:1px solid var(--ligne);border-radius:16px;padding:12px 14px;margin-bottom:14px}.lens .ligne{align-items:end}
+.lens-res{margin-top:10px}.props{display:grid;gap:8px;margin-top:8px}.prop{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--fond);border-radius:12px;padding:10px 12px}.mini{font-size:12px;color:var(--gris)}
+.simil{display:flex;gap:8px;overflow-x:auto;margin-top:10px;padding-bottom:4px}.simil a{flex:none;width:84px;height:84px;border-radius:10px;overflow:hidden;background:var(--beige)}.simil img{width:100%;height:100%;object-fit:cover}
+.panneau{position:fixed;top:0;right:0;bottom:0;z-index:45;width:min(380px,100%);background:#fff;box-shadow:-10px 0 40px rgba(0,0,0,.18);padding:18px;overflow:auto}.panneau .ftete{padding-right:0}.panneau .ftete>div{display:flex;gap:8px;align-items:center}.panneau .fermer{position:static;box-shadow:none;background:var(--beige)}
+.notif{display:grid;gap:3px;width:100%;text-align:left;border:1px solid var(--ligne);background:var(--fond);border-radius:14px;padding:12px 14px;margin-bottom:8px;color:var(--texte)}.notif.lu{opacity:.55}.notif span{font-size:13px;color:var(--gris)}
+.toast{position:fixed;left:50%;bottom:84px;transform:translate(-50%,20px);z-index:60;background:var(--texte);color:#fff;padding:11px 18px;border-radius:14px;font-size:14px;max-width:min(92vw,520px);opacity:0;pointer-events:none;transition:.2s;text-align:center}.toast.show{opacity:1;transform:translate(-50%,0)}
 .barre{display:none}
-@media(max-width:760px){.nav,.btn-ajouter{display:none}.barre{display:flex;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--ligne);z-index:30;padding:6px 6px calc(6px + env(safe-area-inset-bottom))}.barre button{flex:1;border:0;background:none;font:inherit;font-size:11px;color:var(--gris);display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;cursor:pointer}.barre button.on{color:var(--vert);font-weight:600}.barre .plus{flex:none;width:54px;height:54px;border-radius:50%;background:var(--vert);color:#fff;margin-top:-22px;display:grid;place-items:center;box-shadow:0 6px 16px rgba(20,61,47,.35)}.barre .plus .ic{width:24px;height:24px}
-.kpis{grid-template-columns:1fr 1fr}.kpi .val{font-size:24px}.titre-page h1,.hero h1{font-size:30px}.hero{padding:26px}.form,.det{grid-template-columns:1fr}.wgrille{grid-template-columns:1fr}.panneau{top:64px;right:10px}.modal{padding:20px}.voile{padding:14px 8px}.toast{bottom:100px}.src>b{min-width:70px}}
-`;
-function styles(){$$('style[id^="style-v"]').forEach(s=>s.remove());if(!$('#fonts-mm')){const l=document.createElement('link');l.id='fonts-mm';l.rel='stylesheet';l.href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@500;600;700&display=swap';document.head.appendChild(l)}const s=document.createElement('style');s.id='style-v34';s.textContent=CSS;document.head.appendChild(s)}
+@media(max-width:760px){.nav{display:none}.barre{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30;background:#fff;border-top:1px solid var(--ligne);padding:6px 6px calc(6px + env(safe-area-inset-bottom))}.barre button{flex:1;display:grid;place-items:center;gap:2px;border:0;background:transparent;color:var(--gris);font-size:11px;font-weight:600;padding:6px 0}.barre button.on{color:var(--vert)}.barre .ic{width:22px;height:22px}
+ main{padding:16px 14px 90px}h1{font-size:26px}.hero{padding:24px 20px}.hero h1{font-size:28px}.kpis{grid-template-columns:1fr 1fr}.grille{grid-template-columns:1fr 1fr;gap:10px}.wgrille{grid-template-columns:1fr}.form .ligne,.form .ligne.trois{grid-template-columns:1fr}.modal{max-height:92vh;padding:18px 14px 28px}.src>b:first-child{min-width:0}.marque small{display:none}.toast{bottom:76px}}
+@media(min-width:761px){.voile{align-items:center;padding:20px}.modal{border-radius:24px}}`;
+function styles(){$$('style[id^="style-v"]').forEach(s=>s.remove());
+ if(!$('#fonts-mm')){const l=document.createElement('link');l.id='fonts-mm';l.rel='stylesheet';l.href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,700;1,500&display=swap';document.head.appendChild(l)}
+ const s=document.createElement('style');s.id='style-v35';s.textContent=STYLE_CSS;document.head.appendChild(s)}
 
 /* ===================== DÉMARRAGE ===================== */
-async function demarrer(){styles();root=$('#app');if(!root){root=document.createElement('div');root.id='app';document.body.appendChild(root)}
- brancher();await migrer();rendre();
- if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
- setTimeout(()=>veilleAuto(),4000)}
+async function demarrer(){styles();root=$('#app');if(!root){root=document.createElement('div');root.id='app';document.body.appendChild(root)}brancher();
+ try{await migrer()}catch(e){console.error(e)}rendre();
+ if('serviceWorker' in navigator){try{await navigator.serviceWorker.register('./sw.js')}catch(e){}}
+ setTimeout(veilleAuto,4000)}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',demarrer);else demarrer();
 })();
