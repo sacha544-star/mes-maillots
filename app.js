@@ -1304,4 +1304,54 @@ async function collecter(x,o={}){const reqs=requetesRepli(x);const out={date:Dat
  if(o.google&&params.google!==false){const b=await collecterBoutiques(x);Object.assign(out,{boutiques:b.boutiques,liensBoutiques:b.liensBoutiques,boutiquesCherche:b.boutiquesCherche,dateBoutiques:b.dateBoutiques,boutiquesCache:b.boutiquesCache});out.serpapi+=b.serpapi;out.erreurs.push(...b.erreurs)}
  const vus=new Set();out.annonces=out.annonces.filter(a=>{const k=a.lien||a.titre;if(vus.has(k))return false;vus.add(k);return true}).slice(0,40);
  marquerPertinence(out.annonces,x);return out}
+ /* ===================== v3.5.2 — CHOIX MANUEL DE L'ANNONCE DE RÉFÉRENCE ===================== */
+function annonceGardee(a){if(a.exclu===true)return false;if(a.exclu===false)return true;return !(a.sus||SUSPECTS.test(norm(a.texte||a.titre)))}
+function analyserPrix(annonces,ignorerChoix){const liste=annonces||[];const ok=liste.filter(annonceGardee);const choisie=ignorerChoix?null:(liste.find(a=>a.choisi&&a.prix>0)||null);
+ const prix=ok.map(a=>a.prix).sort((a,b)=>a-b);if(!prix.length&&!choisie)return null;
+ let med,fiables,pf,medianeAuto;
+ if(prix.length){med=prix[Math.floor(prix.length/2)];fiables=ok.filter(a=>a.prix>=med*0.4&&a.prix<=med*3).sort((a,b)=>a.prix-b.prix);pf=fiables.map(a=>a.prix);medianeAuto=pf.length?pf[Math.floor(pf.length/2)]:med}
+ else{med=choisie.prix;fiables=[];pf=[choisie.prix];medianeAuto=choisie.prix}
+ if(choisie)fiables=[choisie,...fiables.filter(a=>a!==choisie)];
+ const parSource={};ok.forEach(a=>{parSource[a.source]=(parSource[a.source]||0)+1});
+ return{mediane:choisie?choisie.prix:medianeAuto,medianeAuto,min:pf.length?pf[0]:med,max:pf.length?pf[pf.length-1]:med,nb:ok.length,ecartes:liste.length-ok.length,parSource,fiables,choisie}}
+function fusion(base,c){const refresh=new Set(c.sources||[]);const bAnn=(base&&base.annonces)||[];const cle=a=>a.lien||a.titre;
+ const marques=new Map();bAnn.forEach(a=>{if(a.choisi||a.exclu!=null)marques.set(cle(a),a)});
+ const nouvelles=(c.annonces||[]).map(a=>{const m=marques.get(cle(a));if(m){if(m.choisi)a.choisi=true;if(m.exclu!=null)a.exclu=m.exclu}return a});
+ const anciennes=bAnn.filter(a=>!refresh.has(a.source)||a.choisi);const vus=new Set();
+ const annonces=[...nouvelles,...anciennes].filter(a=>{const k=cle(a);if(vus.has(k))return false;vus.add(k);return true}).slice(0,40);
+ const r={date:Date.now(),annonces,erreurs:c.erreurs||[],serpapi:c.serpapi||0,vintedCherche:!!(c.vintedCherche||(base&&base.vintedCherche)),requete:c.requete||(base&&base.requete)||''};
+ const b=c.boutiquesCherche?c:(base||{});r.boutiques=b.boutiques||[];r.liensBoutiques=b.liensBoutiques||[];r.boutiquesCherche=!!b.boutiquesCherche;r.dateBoutiques=b.dateBoutiques||0;r.boutiquesCache=!!b.boutiquesCache;
+ return r}
+function ligneAnnonce(a,k,cible){const ok=annonceGardee(a);
+ return `<div class="ann-row"><a class="ann${ok?'':' sus'}${a.choisi?' choisie':''}" href="${esc(a.lien||'#')}" target="_blank" rel="noopener" title="${a.choisi?'Annonce de référence':(ok?'Ouvrir l\'annonce':'Écartée du calcul')}"><span class="t">${a.choisi?'★ ':''}${esc(a.titre||'Annonce')}</span>${a.etat?`<span class="e">${esc(a.etat)}</span>`:''}<b>${euros(a.prix)}</b>${I('ext')}</a><div class="ann-btns"><button type="button" class="btn mini-btn${a.choisi?' btn-vert':''}" data-a="ann-choisir" data-c="${esc(cible)}" data-k="${k}" title="${a.choisi?'Retirer la référence (retour à la médiane)':'Prendre cette annonce comme estimation'}">${a.choisi?I('check')+' Référence':'Choisir'}</button><button type="button" class="btn mini-btn" data-a="ann-exclure" data-c="${esc(cible)}" data-k="${k}" title="${ok?'Écarter du calcul':'Réintégrer dans le calcul'}">${ok?'Écarter':'Garder'}</button></div></div>`}
+function blocEstimation(r,pref,o={}){if(!r)return '';const an=r.annonces||[];const g=analyserPrix(an);
+ let h=`<div class="estim"><div class="eyebrow">${o.titre||'Estimation'} · ${dateFr(r.date)} · ${an.length} annonce${an.length>1?'s':''}${r.serpapi?` · ${r.serpapi} recherche${r.serpapi>1?'s':''} SerpApi`:(r.vintedCherche?' · Vinted/Leboncoin depuis le cache (0 SerpApi)':'')}</div>`;
+ if(g&&g.choisie)h+=`<div class="estim-glob">Estimation (occasion) : <b>${euros(g.mediane)}</b> <span class="aide" style="margin:0">annonce de référence choisie par toi (${esc(g.choisie.source)})${g.nb>1?` · médiane automatique des ${g.nb} annonces gardées : ${euros(g.medianeAuto)}`:''}</span></div>`;
+ else h+=g?`<div class="estim-glob">Estimation globale (occasion) : <b>${euros(g.mediane)}</b> <span class="aide" style="margin:0">médiane de ${g.fiables.length} annonces fiables${g.ecartes?`, ${g.ecartes} écartée${g.ecartes>1?'s':''}`:''} · fourchette ${euros(g.min)} – ${euros(g.max)}</span></div>`:`<div class="estim-glob">Aucune annonce d'occasion exploitable pour le moment.${an.length?' Tu peux « Garder » une annonce écartée ou en « Choisir » une comme référence.':''}</div>`;
+ for(const s of SOURCES){const l=an.filter(a=>a.source===s);
+  if(!l.length){if(s==='Web')continue;h+=`<div class="src"><b>${s}</b><span class="aide" style="margin:0">${s==='eBay'?(params.ebay===false?'désactivé dans Paramètres':'aucune annonce trouvée'):(r.vintedCherche?'aucune annonce trouvée':'pas encore cherché')}</span></div>`;continue}
+  const st=analyserPrix(l,true);const cle=pref+'|'+s;const ouvert=etat.srcOuverte===cle;const nbChoisi=l.filter(a=>a.choisi).length;
+  h+=`<div class="src"><b>${s}</b><span>${l.length} annonce${l.length>1?'s':''}${st?` · médiane ${euros(st.mediane)} · ${euros(st.min)} – ${euros(st.max)}`:' · toutes écartées'}${nbChoisi?' · ★ référence ici':''}</span><button type="button" class="btn" style="margin-left:auto;padding:6px 12px;font-size:12px" data-a="estim-src" data-s="${esc(cle)}">${ouvert?'Masquer':'Voir les annonces'}</button></div>`;
+  if(ouvert)h+=`<div class="annonces">${[...l].sort((a,b)=>a.prix-b.prix).map(a=>ligneAnnonce(a,an.indexOf(a),pref)).join('')}<div class="aide" style="margin:2px 0 4px">« Choisir » : cette annonce devient l'estimation. « Écarter » / « Garder » : sort ou remet l'annonce dans le calcul de la médiane.</div></div>`}
+ const bq=r.boutiques||[],lb=r.liensBoutiques||[];
+ if(params.google!==false||r.boutiquesCherche){const cle=pref+'|Boutiques';const ouvert=etat.srcOuverte===cle;const px=bq.map(b=>b.prix).filter(p=>p>0).sort((a,b)=>a-b);
+  if(!r.boutiquesCherche)h+=`<div class="src"><b>Boutiques · prix neuf (Google)</b><span class="aide" style="margin:0">pas encore cherché</span></div>`;
+  else{h+=`<div class="src"><b>Boutiques · prix neuf (Google)</b><span>${px.length?`à partir de <b>${euros(px[0])}</b>${px.length>1?` · ${euros(px[0])} – ${euros(px[px.length-1])}`:''} · ${px.length} produit${px.length>1?'s':''}`:(lb.length?`${lb.length} lien${lb.length>1?'s':''} sans prix`:'aucune boutique trouvée')}${r.boutiquesCache?' · cache (0 SerpApi)':''}${r.dateBoutiques?` · ${dateFr(r.dateBoutiques)}`:''}</span>${(bq.length||lb.length)?`<button type="button" class="btn" style="margin-left:auto;padding:6px 12px;font-size:12px" data-a="estim-src" data-s="${esc(cle)}">${ouvert?'Masquer':'Voir les boutiques'}</button>`:''}</div>`;
+   if(ouvert)h+=`<div class="annonces">${bq.map(b=>`<a class="ann" href="${esc(b.lien)}" target="_blank" rel="noopener" title="Ouvrir la boutique"><span class="t"><b>${esc(b.source)}</b> · ${esc(b.titre||'Produit')}</span><span class="e">neuf</span>${b.prix>0?`<b>${euros(b.prix)}</b>`:''}${I('ext')}</a>`).join('')}${lb.map(b=>`<a class="ann" href="${esc(b.lien)}" target="_blank" rel="noopener" title="Ouvrir le lien"><span class="t"><b>${esc(b.source)}</b> · ${esc(b.titre||'Lien')}</span><span class="e">sans prix</span>${I('ext')}</a>`).join('')}</div><div class="aide">Prix neufs en boutique : simple repère, ils n'entrent pas dans l'estimation.</div>`}}
+ if(r.erreurs&&r.erreurs.length)h+=`<div class="aide" style="color:var(--rouge)">${r.erreurs.map(esc).join('<br>')}</div>`;
+ if(o.actions)h+=`<div class="wactions" style="margin-top:10px">${o.actions}</div>`;
+ return h+'</div>'}
+function cibleDe(pref){pref=String(pref||'');if(pref==='form'){synchroForm();return{x:etat.form,type:'form'}}
+ if(pref[0]==='w')return{x:wishlist.find(y=>String(y.id)===pref.slice(1)),type:'wish'};
+ return{x:collection.find(y=>String(y.id)===pref.slice(1)),type:'maillot'}}
+function appliquerChoix(t){const r=t.x.releve;const s=analyserPrix(r.annonces);
+ if(t.type==='wish'){const w=t.x;if(s){w.dernierPrix=s.mediane;w.meilleurPrix=s.min;w.nbAnnonces=s.nb;w.meilleureAnnonce=s.fiables[0]?{titre:s.fiables[0].titre,prix:s.fiables[0].prix,lien:s.fiables[0].lien,source:s.fiables[0].source}:null;if(w.historique&&w.historique.length){const d=w.historique[w.historique.length-1];d.prix=s.mediane;d.min=s.min}}else{w.nbAnnonces=0;w.meilleureAnnonce=null}}
+ else{if(s){t.x.valeur=s.mediane;t.x.dateEstimation=Date.now()}else{t.x.valeur=null;t.x.dateEstimation=null}}
+ if(t.type!=='form')sauver();rendre()}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-a="ann-choisir"],[data-a="ann-exclure"]');if(!b)return;
+ const t=cibleDe(b.dataset.c);if(!t.x||!t.x.releve)return;const a=(t.x.releve.annonces||[])[+b.dataset.k];if(!a)return;
+ if(b.dataset.a==='ann-choisir'){const etait=!!a.choisi;t.x.releve.annonces.forEach(z=>{z.choisi=false});if(!etait){a.choisi=true;a.exclu=false}toast(etait?'Référence retirée : retour à la médiane automatique.':`Référence : ${euros(a.prix)} (${a.source}).`)}
+ else{a.exclu=annonceGardee(a)?true:false;if(a.exclu)a.choisi=false;toast(a.exclu?'Annonce écartée du calcul.':'Annonce réintégrée dans le calcul.')}
+ appliquerChoix(t)});
+(()=>{const s=document.createElement('style');s.id='extra-v352';s.textContent=`.ann-row{display:flex;gap:6px;align-items:stretch}.ann-row .ann{flex:1;min-width:0}.ann-btns{display:flex;gap:4px;flex:none}.mini-btn{padding:6px 9px;font-size:12px;border-radius:10px;white-space:nowrap}.ann.choisie{border-color:var(--or);box-shadow:0 0 0 2px rgba(201,162,39,.35);opacity:1;text-decoration:none}@media(max-width:760px){.ann-row{flex-wrap:wrap}.ann-row .ann{flex-basis:100%}.ann-btns{margin-left:auto}}`;document.head.appendChild(s)})();
 })();
