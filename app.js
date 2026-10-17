@@ -1279,4 +1279,29 @@ async function demarrer(){styles();root=$('#app');if(!root){root=document.create
  if('serviceWorker' in navigator){try{await navigator.serviceWorker.register('./sw.js')}catch(e){}}
  setTimeout(veilleAuto,4000)}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',demarrer);else demarrer();
+ /* ===================== v3.5.1 — FILTRE DE PERTINENCE ===================== */
+/* Écarte du calcul les annonces d'une autre équipe ou d'une saison trop éloignée (elles restent visibles, barrées). */
+const MOTS_BANALS=/^(maillot|jersey|shirt|equipe|team|club|national|united|city|real|olympique|sporting|athletic|atletico|football|futbol|inter|fc|sc|ac|as|de|du|la|le|les|the|of)$/;
+function motsEquipe(x){const e=trouverEquipe(x.equipe);const out=new Set();const add=s=>{const n=norm(s||'');if(n.length>=2)out.add(n)};
+ add(x.equipe);if(e){add(e.nom);e.alias.forEach(add)}
+ norm(x.equipe||'').split(' ').filter(w=>w.length>=4&&!MOTS_BANALS.test(w)).forEach(w=>out.add(w));
+ return [...out]}
+function anneeCible(x){const m=String(x.saison||'').match(/(?:19|20)\d{2}/);return m?+m[0]:0}
+function anneesTexte(t){const out=[];let s;const re=/\b((?:19|20)\d{2})(?:\s*[-\/]\s*((?:19|20)?\d{2}))?\b/g;
+ while((s=re.exec(t))!==null){out.push(+s[1]);if(s[2])out.push(s[2].length===2?+(s[1].slice(0,2)+s[2]):+s[2])}
+ const re2=/\b(\d{2})\s*[\/-]\s*(\d{2})\b/g;while((s=re2.exec(t))!==null){const a=+s[1],b=+s[2];if(b===a+1||(a===99&&b===0))out.push(a>=50?1900+a:2000+a)}
+ return out}
+function pertinence(a,x){const t=norm(String(a.titre||'')+' '+String(a.extrait||''));const nn=' '+t+' ';
+ const mots=motsEquipe(x);if(mots.length&&!mots.some(m=>nn.includes(' '+m+' ')))return 'autre équipe';
+ const an=anneeCible(x);if(an){const as=anneesTexte(t);if(as.length&&!as.some(y=>Math.abs(y-an)<=1))return 'autre saison'}
+ return ''}
+function marquerPertinence(liste,x){let n=0;(liste||[]).forEach(a=>{const r=pertinence(a,x);if(r){a.sus=true;a.hs=true;a.etat=r;n++}});return n}
+/* Nouvelle version de collecter() : identique à la précédente + filtre de pertinence à la fin */
+async function collecter(x,o={}){const reqs=requetesRepli(x);const out={date:Date.now(),annonces:[],erreurs:[],serpapi:0,vintedCherche:false,sources:[],requete:reqs[0]};
+ if(params.ebay!==false&&!o.sansEbay){out.sources.push('eBay');try{const j=await relais('ebay',{q:reqs[0],repli:reqs.slice(1)});out.annonces=out.annonces.concat(normaliserAnnonces(j,'eBay'))}catch(e){out.erreurs.push('eBay : '+e.message)}}
+ if(params.vinted!==false&&!o.sansVinted){if(quota().utilise>=QUOTA_MAX-2)out.erreurs.push('Vinted/Leboncoin non cherchés : quota SerpApi du mois épuisé.');
+  else{try{const q=o.large?(reqs[1]||reqs[0]):reqs[0];const j=await relais('annonces',{q,repli:o.large?reqs.slice(2):reqs.slice(1)});out.vintedCherche=true;out.sources.push('Vinted','Leboncoin','Web');out.serpapi=j.cache?0:(Number(j.serpapi_recherches)||(j.serpapi_utilise?1:0));out.annonces=out.annonces.concat(normaliserAnnonces(j))}catch(e){out.erreurs.push('Vinted/Leboncoin : '+e.message)}}}
+ if(o.google&&params.google!==false){const b=await collecterBoutiques(x);Object.assign(out,{boutiques:b.boutiques,liensBoutiques:b.liensBoutiques,boutiquesCherche:b.boutiquesCherche,dateBoutiques:b.dateBoutiques,boutiquesCache:b.boutiquesCache});out.serpapi+=b.serpapi;out.erreurs.push(...b.erreurs)}
+ const vus=new Set();out.annonces=out.annonces.filter(a=>{const k=a.lien||a.titre;if(vus.has(k))return false;vus.add(k);return true}).slice(0,40);
+ marquerPertinence(out.annonces,x);return out}
 })();
