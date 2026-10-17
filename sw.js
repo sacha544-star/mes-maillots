@@ -1,4 +1,4 @@
-const CACHE = 'mes-maillots-v8';
+const CACHE = 'mes-maillots-v9';
 const FICHIERS = ['./', './index.html', './app.js', './manifest.json'];
 const CACHE = 'mes-maillots-v8';
 const FICHIERS = ['./', './index.html', './app.js', './style.css', './manifest.json'];
